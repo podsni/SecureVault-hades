@@ -174,10 +174,11 @@ export class FileEncryptionManager {
 	async decryptFile(
 		file: TFile,
 		password: string,
-		keyFileContent?: string
+		keyFileContent?: string,
+		cachedContent?: string
 	): Promise<boolean> {
 		try {
-			const rawContent = await this.app.vault.read(file);
+			const rawContent = cachedContent ?? await this.app.vault.read(file);
 			const parsed = this.parseEncryptedPayload(rawContent);
 			if (!parsed) {
 				new Notice('❌ Unsupported encrypted file format');
@@ -239,10 +240,11 @@ export class FileEncryptionManager {
 	async quickUnlockFile(
 		file: TFile,
 		password: string,
-		keyFileContent?: string
+		keyFileContent?: string,
+		cachedContent?: string
 	): Promise<string | null> {
 		try {
-			const rawContent = await this.app.vault.read(file);
+			const rawContent = cachedContent ?? await this.app.vault.read(file);
 			const parsed = this.parseEncryptedPayload(rawContent);
 			if (!parsed) {
 				new Notice('❌ Unsupported encrypted file format');

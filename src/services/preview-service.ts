@@ -46,7 +46,8 @@ export class PreviewService {
 				const decrypted = await this.plugin.fileEncryption.quickUnlockFile(
 					file,
 					password,
-					keyFileContent
+					keyFileContent,
+					rawContent
 				);
 
 				if (decrypted) {
