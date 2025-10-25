@@ -1,6 +1,7 @@
 import { App, Modal, Notice, Setting, TFile, Platform } from 'obsidian';
 import { calculatePasswordStrength, generateSecurePassword, generateKeyFile, validateKeyFile, combinePasswordAndKeyFile } from './utils';
 import { SecureVaultSettings } from './types';
+import { AuditReport, AuditSeverity } from './services/security-audit';
 import { FileSystemPicker } from './file-system-picker';
 
 export class PasswordModal extends Modal {
@@ -613,5 +614,115 @@ export class AccessLogModal extends Modal {
 	onClose() {
 		const { contentEl } = this;
 		contentEl.empty();
+	}
+}
+
+export class SecurityAuditModal extends Modal {
+	private report: AuditReport;
+
+	constructor(app: App, report: AuditReport) {
+		super(app);
+		this.report = report;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+		contentEl.addClass('securevault-quick-menu');
+
+		contentEl.createEl('h2', { text: '🔍 SecureVault Audit Report' });
+		contentEl.createEl('p', { text: new Date(this.report.timestamp).toLocaleString(), cls: 'audit-timestamp' });
+
+		const summaryGrid = contentEl.createDiv('audit-summary-grid');
+		summaryGrid.style.cssText = `
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+			gap: 12px;
+			margin-bottom: 20px;
+		`;
+
+		this.addSummaryCard(summaryGrid, '📁 Folders', this.report.scannedFolders.toString());
+		this.addSummaryCard(summaryGrid, '📄 Files Checked', this.report.scannedFiles.toString());
+		this.addSummaryCard(summaryGrid, '⚠️ Issues', this.report.issues.length.toString(), this.report.issues.length > 0 ? 'var(--text-warning)' : 'var(--text-success)');
+
+		const issuesContainer = contentEl.createDiv('audit-issues');
+		issuesContainer.style.cssText = `
+			border: 1px solid var(--background-modifier-border);
+			border-radius: 6px;
+			max-height: 320px;
+			overflow-y: auto;
+			padding: 12px;
+		`;
+
+		if (this.report.issues.length === 0) {
+			issuesContainer.createEl('p', {
+				text: '✅ No issues detected. SecureVault looks great!'
+			});
+		} else {
+			for (const issue of this.report.issues) {
+				const item = issuesContainer.createDiv('audit-issue');
+				item.style.cssText = `
+					padding: 10px;
+					margin-bottom: 8px;
+					border-radius: 4px;
+					background: var(--background-secondary);
+					border-left: 3px solid ${this.getSeverityColor(issue.severity)};
+				`;
+
+				item.createEl('h4', { text: this.getSeverityLabel(issue.severity) });
+				item.createEl('p', { text: issue.message });
+				if (issue.path) {
+					item.createEl('code', { text: issue.path });
+				}
+			}
+		}
+
+		const footer = contentEl.createDiv('audit-footer');
+		footer.style.cssText = `
+			display: flex;
+			justify-content: space-between;
+			margin-top: 20px;
+		`; 
+
+		footer.createEl('span', { text: 'Tip: Jalankan audit secara berkala setelah melakukan operasi massal.' });
+
+		const closeBtn = footer.createEl('button', { text: 'Close', cls: 'mod-cta' });
+		closeBtn.addEventListener('click', () => this.close());
+	}
+
+	private addSummaryCard(container: HTMLElement, label: string, value: string, color?: string) {
+		const card = container.createDiv('audit-summary-card');
+		card.style.cssText = `
+			padding: 12px;
+			border-radius: 6px;
+			background: var(--background-secondary);
+			border: 1px solid var(--background-modifier-border);
+		`;
+
+		card.createEl('span', { text: label, cls: 'summary-label' });
+		const valueEl = card.createEl('strong', { text: value, cls: 'summary-value' });
+		if (color) valueEl.style.color = color;
+	}
+
+	private getSeverityColor(severity: AuditSeverity): string {
+		switch (severity) {
+			case 'error':
+				return 'var(--text-error)';
+			case 'warning':
+				return 'var(--text-warning)';
+			default:
+				return 'var(--text-muted)';
+		}
+	}
+
+	private getSeverityLabel(severity: AuditSeverity): string {
+		switch (severity) {
+			case 'error':
+				return '❌ Critical';
+			case 'warning':
+				return '⚠️ Warning';
+			default:
+				return 'ℹ️ Info';
+		}
 	}
 }

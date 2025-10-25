@@ -5,3 +5,4 @@
 
 export { CryptoService } from '../crypto';
 export { PreviewService } from './preview-service';
+export { SecurityAuditService } from './security-audit';

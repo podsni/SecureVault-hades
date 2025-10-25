@@ -14,6 +14,8 @@ import { PasswordMemoryManager } from './src/password-memory-manager';
 import { SecVaultView, SECVAULT_VIEW_TYPE } from './src/secvault-view';
 import { SecureVaultView, VIEW_TYPE_SECUREVAULT } from './src/sidebar-view';
 import { PreviewService } from './src/services';
+import { SecurityAuditService } from './src/services/security-audit';
+import { SecurityAuditModal } from './src/modals';
 
 export default class SecureVaultPlugin extends Plugin {
 	settings: SecureVaultSettings;
@@ -26,6 +28,7 @@ export default class SecureVaultPlugin extends Plugin {
 	selectionEncryption: SelectionEncryptionManager;
 	passwordMemory: PasswordMemoryManager;
 	previewService: PreviewService;
+	securityAudit: SecurityAuditService;
 	private autoLockTimer: NodeJS.Timeout | null = null;
 	private isProcessing: boolean = false;
 	private statusBarUpdateTimer: NodeJS.Timeout | null = null;
@@ -46,6 +49,7 @@ export default class SecureVaultPlugin extends Plugin {
 		this.selectionEncryption = new SelectionEncryptionManager(this, this.app);
 		this.passwordMemory = new PasswordMemoryManager(this, this.app);
 		this.previewService = new PreviewService(this.app, this);
+		this.securityAudit = new SecurityAuditService(this);
 
 		// Register custom view for .secvault files
 		this.registerView(
@@ -131,6 +135,14 @@ export default class SecureVaultPlugin extends Plugin {
 			name: 'Open SecureVault sidebar',
 			callback: async () => {
 				await this.activateSecureVaultSidebar();
+			}
+		});
+
+		this.addCommand({
+			id: 'run-security-audit',
+			name: 'Run security audit',
+			callback: async () => {
+				await this.runSecurityAudit();
 			}
 		});
 
@@ -908,6 +920,19 @@ SecureVault/
 				this.updateStatusBar(this.statusBarEl);
 			}
 		}, 300); // Debounce 300ms sebelum update
+	}
+
+	async runSecurityAudit() {
+		new Notice('🔍 Running SecureVault audit...');
+		const report = await this.securityAudit.runAudit();
+
+		if (report.issues.length === 0) {
+			new Notice('✅ SecureVault audit complete — no issues found.');
+		} else {
+			new Notice(`⚠️ SecureVault audit found ${report.issues.length} issue(s).`);
+		}
+
+		new SecurityAuditModal(this.app, report).open();
 	}
 }
 
