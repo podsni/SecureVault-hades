@@ -68,6 +68,8 @@ export interface EncryptedFileMetadata {
 	salt: string;
 	iv: string;
 	content: string;
+	originalExtension?: string;
+	originalPath?: string;
 }
 
 export const DEFAULT_SETTINGS: SecureVaultSettings = {

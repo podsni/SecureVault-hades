@@ -33,7 +33,7 @@ export default class SecureVaultPlugin extends Plugin {
 		await this.loadSettings();
 		
 		// Initialize core managers
-		this.vaultManager = new VaultManager(this.app);
+		this.vaultManager = new VaultManager(this.app, () => this.settings);
 		this.accessLogger = new AccessLogger(this.settings);
 		this.passwordManager = new MasterPasswordManager(this.app, this.settings);
 		

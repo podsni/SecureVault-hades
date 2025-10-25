@@ -24,6 +24,12 @@ export class PreviewService {
 			return;
 		}
 
+		const rawContent = (await this.app.vault.read(file)).trim();
+		if (rawContent.startsWith('---SECUREVAULT---')) {
+			new Notice('ℹ️ Preview tidak tersedia untuk file hasil enkripsi folder. Gunakan Unlock Folder.');
+			return;
+		}
+
 		new PasswordModal(this.app, this.plugin.settings, async (password: string) => {
 			try {
 				// Get key file if enabled

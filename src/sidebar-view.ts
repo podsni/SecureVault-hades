@@ -1,5 +1,6 @@
 import { ItemView, WorkspaceLeaf, Notice } from 'obsidian';
 import SecureVaultPlugin from '../main';
+import { EncryptedFolder } from './types';
 
 export const VIEW_TYPE_SECUREVAULT = 'securevault-sidebar';
 
@@ -34,177 +35,214 @@ export class SecureVaultView extends ItemView {
 	renderView(container: Element) {
 		container.empty();
 
-		// Header
+		const root = container as HTMLElement;
+
+		this.renderHeader(root);
+		this.renderSummary(root);
+		this.renderQuickActions(root);
+		this.renderFolderSections(root);
+		this.renderFooter(root);
+	}
+
+	async onClose() {
+		// Cleanup
+	}
+
+	refresh() {
+		const container = this.containerEl.children[1];
+		this.renderView(container);
+	}
+
+	private renderHeader(container: HTMLElement) {
 		const header = container.createDiv('securevault-header');
 		header.createEl('h2', { text: '🔐 SecureVault-Hades' });
-
-		// Status Summary
-		const summary = container.createDiv('securevault-summary');
-		const totalFolders = this.plugin.settings.encryptedFolders.length;
-		const lockedCount = this.plugin.settings.encryptedFolders.filter(f => f.isLocked).length;
-		const unlockedCount = totalFolders - lockedCount;
-
-		summary.createEl('div', { 
-			text: `Total: ${totalFolders} folders`,
-			cls: 'summary-total'
+		header.createEl('p', {
+			text: 'Kelola folder terenkripsi dengan tampilan modular dan ringkas.',
+			cls: 'securevault-subtitle'
 		});
-		summary.createEl('div', { 
-			text: `🔒 Locked: ${lockedCount}`,
-			cls: 'summary-locked'
-		});
-		summary.createEl('div', { 
-			text: `🔓 Unlocked: ${unlockedCount}`,
-			cls: 'summary-unlocked'
-		});
+	}
 
-		// Quick Actions
-		const actions = container.createDiv('securevault-actions');
-		actions.createEl('h3', { text: '⚡ Quick Actions' });
+	private renderSummary(container: HTMLElement) {
+		const folders = this.plugin.settings.encryptedFolders;
+		const total = folders.length;
+		const locked = folders.filter(f => f.isLocked).length;
+		const unlocked = total - locked;
 
-		// Button: Create Folder
-		const btnCreate = actions.createEl('button', {
-			text: '➕ Create Encrypted Folder',
-			cls: 'securevault-btn securevault-btn-primary'
+		const summary = container.createDiv('securevault-summary-grid');
+
+		this.createSummaryCard(summary, 'Total Folders', total.toString(), 'summary-total');
+		this.createSummaryCard(summary, '🔒 Locked', locked.toString(), 'summary-locked');
+		this.createSummaryCard(summary, '🔓 Unlocked', unlocked.toString(), 'summary-unlocked');
+	}
+
+	private createSummaryCard(parent: HTMLElement, label: string, value: string, cls: string) {
+		const card = parent.createDiv({ cls: ['securevault-summary-card', cls] });
+		card.createEl('span', { text: label, cls: 'summary-label' });
+		card.createEl('strong', { text: value, cls: 'summary-value' });
+	}
+
+	private renderQuickActions(container: HTMLElement) {
+		const actions = container.createDiv('securevault-actions-grid');
+		actions.createEl('h3', { text: '⚡ Quick Actions', cls: 'securevault-section-title' });
+
+		const buttonsWrapper = actions.createDiv('securevault-actions-wrapper');
+		this.createActionButton(
+			buttonsWrapper,
+			'➕ Create Encrypted Folder',
+			'securevault-btn-primary',
+			() => this.plugin.createEncryptedFolderCommand()
+		);
+		this.createActionButton(
+			buttonsWrapper,
+			'🛡️ Encrypt Current Folder',
+			'securevault-btn-secondary',
+			() => this.plugin.encryptCurrentFolderCommand()
+		);
+		this.createActionButton(
+			buttonsWrapper,
+			'🔓 Unlock All Folders',
+			'securevault-btn-success',
+			() => this.plugin.unlockAllCommand()
+		);
+		this.createActionButton(
+			buttonsWrapper,
+			'🔒 Lock All Folders',
+			'securevault-btn-warning',
+			() => this.plugin.lockAllCommand()
+		);
+	}
+
+	private createActionButton(parent: HTMLElement, label: string, cls: string, handler: () => void) {
+		const button = parent.createEl('button', {
+			text: label,
+			cls: ['securevault-btn', cls]
 		});
-		btnCreate.addEventListener('click', (e) => {
-			e.preventDefault();
-			e.stopPropagation();
-			console.log('Create button clicked');
+		button.addEventListener('click', (event) => {
+			event.preventDefault();
+			event.stopPropagation();
 			try {
-				this.plugin.createEncryptedFolderCommand();
+				handler();
 			} catch (error) {
-				console.error('Error creating folder:', error);
-				new Notice('❌ Error: ' + error.message);
+				console.error(`Error executing action "${label}":`, error);
+				new Notice(`❌ Error: ${error.message}`);
 			}
 		});
+	}
 
-		// Button: Unlock All
-		const btnUnlock = actions.createEl('button', {
-			text: '🔓 Unlock All Folders',
-			cls: 'securevault-btn securevault-btn-success'
+	private renderFolderSections(container: HTMLElement) {
+		const folders = this.plugin.settings.encryptedFolders;
+		const locked = folders.filter(f => f.isLocked);
+		const unlocked = folders.filter(f => !f.isLocked);
+
+		const sectionWrapper = container.createDiv('securevault-folder-sections');
+		this.renderFolderSection(
+			sectionWrapper,
+			'🔒 Locked folders',
+			locked,
+			'Belum ada folder yang dikunci.',
+			container
+		);
+		this.renderFolderSection(
+			sectionWrapper,
+			'🔓 Unlocked folders',
+			unlocked,
+			'Tidak ada folder yang sedang terbuka.',
+			container
+		);
+	}
+
+	private renderFolderSection(
+		parent: HTMLElement,
+		title: string,
+		folders: EncryptedFolder[],
+		emptyMessage: string,
+		root: HTMLElement
+	) {
+		const section = parent.createDiv('securevault-folder-section');
+		section.createEl('h3', { text: title, cls: 'securevault-section-title' });
+
+		if (folders.length === 0) {
+			section.createEl('p', {
+				text: emptyMessage,
+				cls: 'securevault-empty'
+			});
+			return;
+		}
+
+		const list = section.createDiv('securevault-folder-list');
+		folders.forEach(folder => {
+			this.renderFolderCard(list, folder, root);
 		});
-		btnUnlock.addEventListener('click', (e) => {
-			e.preventDefault();
-			e.stopPropagation();
-			console.log('Unlock All button clicked');
-			try {
-				this.plugin.unlockAllCommand();
-			} catch (error) {
-				console.error('Error unlocking:', error);
-				new Notice('❌ Error: ' + error.message);
-			}
+	}
+
+	private renderFolderCard(list: HTMLElement, folder: EncryptedFolder, root: HTMLElement) {
+		const card = list.createDiv({ cls: ['securevault-folder-card', folder.isLocked ? 'is-locked' : 'is-unlocked'] });
+		
+		const header = card.createDiv('folder-card-header');
+		header.createEl('span', {
+			text: `${folder.isLocked ? '🔒' : '🔓'} ${folder.path}`,
+			cls: 'folder-card-title'
+		});
+		header.createEl('span', {
+			text: `${folder.encryptedFiles.length} files`,
+			cls: 'folder-card-files'
 		});
 
-		// Button: Lock All
-		const btnLock = actions.createEl('button', {
-			text: '🔒 Lock All Folders',
-			cls: 'securevault-btn securevault-btn-warning'
+		const meta = card.createDiv('folder-card-meta');
+		meta.createEl('span', {
+			text: folder.isLocked ? 'Status: Locked' : 'Status: Unlocked',
+			cls: 'folder-card-status'
 		});
-		btnLock.addEventListener('click', (e) => {
-			e.preventDefault();
-			e.stopPropagation();
-			console.log('Lock All button clicked');
-			try {
-				this.plugin.lockAllCommand();
-			} catch (error) {
-				console.error('Error locking:', error);
-				new Notice('❌ Error: ' + error.message);
-			}
+		meta.createEl('span', {
+			text: `Updated: ${new Date(folder.lastModified || Date.now()).toLocaleString()}`,
+			cls: 'folder-card-updated'
 		});
 
-		// Button: Encrypt Current
-		const btnEncryptCurrent = actions.createEl('button', {
-			text: '🛡️ Encrypt Current Folder',
-			cls: 'securevault-btn securevault-btn-secondary'
-		});
-		btnEncryptCurrent.addEventListener('click', (e) => {
-			e.preventDefault();
-			e.stopPropagation();
-			console.log('Encrypt Current button clicked');
-			try {
-				this.plugin.encryptCurrentFolderCommand();
-			} catch (error) {
-				console.error('Error encrypting:', error);
-				new Notice('❌ Error: ' + error.message);
-			}
-		});
-
-		// Folder List
-		const folderSection = container.createDiv('securevault-folders');
-		folderSection.createEl('h3', { text: '📁 Encrypted Folders' });
-
-		if (totalFolders === 0) {
-			folderSection.createEl('p', {
-				text: 'Belum ada folder terenkripsi.',
-				cls: 'empty-state'
+		const actions = card.createDiv('folder-card-actions');
+		if (folder.isLocked) {
+			const unlockBtn = actions.createEl('button', {
+				text: 'Unlock',
+				cls: ['folder-card-btn', 'unlock']
+			});
+			unlockBtn.addEventListener('click', async (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				try {
+					await this.plugin.unlockSpecificFolder(folder);
+					this.renderView(root);
+				} catch (error) {
+					console.error('Error unlocking folder:', error);
+					new Notice('❌ Error: ' + error.message);
+				}
 			});
 		} else {
-			const folderList = folderSection.createDiv('folder-list');
-
-			this.plugin.settings.encryptedFolders.forEach(folder => {
-				const folderItem = folderList.createDiv('folder-item');
-				
-				const folderInfo = folderItem.createDiv('folder-info');
-				const icon = folder.isLocked ? '🔒' : '🔓';
-				folderInfo.createEl('div', {
-					text: `${icon} ${folder.path}`,
-					cls: 'folder-name'
-				});
-				folderInfo.createEl('div', {
-					text: `${folder.encryptedFiles.length} files`,
-					cls: 'folder-files'
-				});
-
-				const folderActions = folderItem.createDiv('folder-actions');
-				
-				if (folder.isLocked) {
-					const btnUnlockOne = folderActions.createEl('button', {
-						text: 'Unlock',
-						cls: 'folder-btn'
-					});
-					btnUnlockOne.addEventListener('click', async (e) => {
-						e.preventDefault();
-						e.stopPropagation();
-						console.log('Unlock folder clicked:', folder.path);
-						try {
-							await this.plugin.unlockSpecificFolder(folder);
-							this.renderView(container);
-						} catch (error) {
-							console.error('Error unlocking folder:', error);
-							new Notice('❌ Error: ' + error.message);
-						}
-					});
-				} else {
-					const btnLockOne = folderActions.createEl('button', {
-						text: 'Lock',
-						cls: 'folder-btn'
-					});
-					btnLockOne.addEventListener('click', async (e) => {
-						e.preventDefault();
-						e.stopPropagation();
-						console.log('Lock folder clicked:', folder.path);
-						try {
-							await this.plugin.lockSpecificFolder(folder);
-							this.renderView(container);
-						} catch (error) {
-							console.error('Error locking folder:', error);
-							new Notice('❌ Error: ' + error.message);
-						}
-					});
+			const lockBtn = actions.createEl('button', {
+				text: 'Lock',
+				cls: ['folder-card-btn', 'lock']
+			});
+			lockBtn.addEventListener('click', async (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				try {
+					await this.plugin.lockSpecificFolder(folder);
+					this.renderView(root);
+				} catch (error) {
+					console.error('Error locking folder:', error);
+					new Notice('❌ Error: ' + error.message);
 				}
 			});
 		}
+	}
 
-		// Settings Link
+	private renderFooter(container: HTMLElement) {
 		const footer = container.createDiv('securevault-footer');
 		const settingsLink = footer.createEl('a', {
-			text: '⚙️ Open Settings',
+			text: '⚙️ Open settings',
 			cls: 'settings-link'
 		});
-		settingsLink.addEventListener('click', (e) => {
-			e.preventDefault();
-			e.stopPropagation();
-			console.log('Settings link clicked');
+		settingsLink.addEventListener('click', (event) => {
+			event.preventDefault();
+			event.stopPropagation();
 			try {
 				// @ts-ignore
 				this.app.setting.open();
@@ -215,14 +253,5 @@ export class SecureVaultView extends ItemView {
 				new Notice('⚙️ Please open Settings manually');
 			}
 		});
-	}
-
-	async onClose() {
-		// Cleanup
-	}
-
-	refresh() {
-		const container = this.containerEl.children[1];
-		this.renderView(container);
 	}
 }

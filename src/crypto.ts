@@ -94,24 +94,73 @@ export class CryptoService {
 	}
 
 	static encodeFileContent(metadata: EncryptedFileMetadata): string {
-		return `---SECUREVAULT---
-metadata: ${metadata.algorithm}
-salt: ${metadata.salt}
-iv: ${metadata.iv}
-content: ${metadata.content}
----END---`;
+		const lines: string[] = [
+			'---SECUREVAULT---',
+			`metadata: ${metadata.algorithm}`,
+			`salt: ${metadata.salt}`,
+			`iv: ${metadata.iv}`,
+			`content: ${metadata.content}`
+		];
+
+		if (metadata.originalExtension) {
+			lines.push(`original-extension: ${metadata.originalExtension}`);
+		}
+
+		if (metadata.originalPath) {
+			lines.push(`original-path: ${metadata.originalPath}`);
+		}
+
+		lines.push('---END---');
+
+		return lines.join('\n');
 	}
 
 	static decodeFileContent(encodedContent: string): EncryptedFileMetadata | null {
-		const match = encodedContent.match(/---SECUREVAULT---\nmetadata: (.+)\nsalt: (.+)\niv: (.+)\ncontent: (.+)\n---END---/);
-		
-		if (!match) return null;
+		const blockMatch = encodedContent.match(/---SECUREVAULT---\n([\s\S]*?)\n---END---/);
+		if (!blockMatch) {
+			return null;
+		}
 
-		return {
-			algorithm: match[1] as EncryptionAlgorithm,
-			salt: match[2],
-			iv: match[3],
-			content: match[4]
-		};
+		const payload = blockMatch[1].split('\n');
+		const result: Partial<EncryptedFileMetadata> = {};
+
+		for (const line of payload) {
+			const separatorIndex = line.indexOf(':');
+			if (separatorIndex === -1) {
+				continue;
+			}
+
+			const key = line.substring(0, separatorIndex).trim();
+			const rawValue = line.substring(separatorIndex + 1).trim();
+
+			switch (key) {
+				case 'metadata':
+					result.algorithm = rawValue as EncryptionAlgorithm;
+					break;
+				case 'salt':
+					result.salt = rawValue;
+					break;
+				case 'iv':
+					result.iv = rawValue;
+					break;
+				case 'content':
+					result.content = rawValue;
+					break;
+				case 'original-extension':
+					result.originalExtension = rawValue;
+					break;
+				case 'original-path':
+					result.originalPath = rawValue;
+					break;
+				default:
+					break;
+			}
+		}
+
+		if (!result.algorithm || !result.salt || !result.iv || !result.content) {
+			return null;
+		}
+
+		return result as EncryptedFileMetadata;
 	}
 }

@@ -1,9 +1,33 @@
 import { App, Notice, TFile, TFolder } from 'obsidian';
 import { CryptoService } from './crypto';
-import { EncryptedFolder, EncryptedFileMetadata, EncryptionAlgorithm } from './types';
+import { EncryptedFolder, EncryptedFileMetadata, EncryptionAlgorithm, SecureVaultSettings } from './types';
 
 export class VaultManager {
-	constructor(private app: App) {}
+	constructor(
+		private app: App,
+		private readonly settingsProvider: () => SecureVaultSettings
+	) {}
+
+	private get settings(): SecureVaultSettings {
+		return this.settingsProvider();
+	}
+
+	private shouldUseSecvaultExtension(): boolean {
+		return this.settings.useSecvaultExtension;
+	}
+
+	private getSecvaultPath(filePath: string): string {
+		if (filePath.endsWith('.secvault')) {
+			return filePath;
+		}
+		return filePath.replace(/\.[^/.]+$/, '.secvault');
+	}
+
+	private async renameFile(file: TFile, newPath: string): Promise<TFile> {
+		await this.app.fileManager.renameFile(file, newPath);
+		const renamed = this.app.vault.getAbstractFileByPath(newPath);
+		return renamed instanceof TFile ? renamed : file;
+	}
 
 	// Detect actual lock status by checking files
 	async detectFolderLockStatus(folderPath: string): Promise<{ isLocked: boolean; algorithm: EncryptionAlgorithm | 'Mixed' | 'Unknown' }> {
@@ -19,7 +43,21 @@ export class VaultManager {
 		const algorithms = new Set<EncryptionAlgorithm>();
 
 		for (const file of files) {
-			if (file.extension === 'md') {
+			const extension = file.extension.toLowerCase();
+
+			if (extension === 'secvault') {
+				encryptedCount++;
+				
+				try {
+					const content = await this.app.vault.read(file);
+					const metadata = CryptoService.decodeFileContent(content);
+					if (metadata?.algorithm) {
+						algorithms.add(metadata.algorithm);
+					}
+				} catch (error) {
+					console.error('Failed to inspect .secvault file:', file.path, error);
+				}
+			} else if (extension === 'md') {
 				const content = await this.app.vault.read(file);
 				
 				if (this.isFileEncrypted(content)) {
@@ -53,37 +91,54 @@ export class VaultManager {
 
 	async encryptFolder(folder: TFolder, password: string, recursive: boolean = true): Promise<EncryptedFolder> {
 		const files = this.getAllFilesInFolder(folder, recursive);
-		const encryptedFiles: string[] = [];
+		const settings = this.settings;
 
-		for (const file of files) {
-			if (file.extension === 'md') {
-				const content = await this.app.vault.read(file);
-				
-				// Skip if already encrypted
-				if (this.isFileEncrypted(content)) {
-					encryptedFiles.push(file.path);
-					continue;
-				}
-				
-				const encrypted = CryptoService.encrypt(content, password);
-				const encodedContent = CryptoService.encodeFileContent(encrypted);
-				
-				await this.app.vault.modify(file, encodedContent);
-				encryptedFiles.push(file.path);
+		for (let file of files) {
+			if (file.extension.toLowerCase() !== 'md') {
+				continue;
+			}
+
+			const content = await this.app.vault.read(file);
+
+			// Skip if already encrypted
+			if (this.isFileEncrypted(content)) {
+				continue;
+			}
+
+			const encrypted = CryptoService.encrypt(
+				content,
+				password,
+				this.settings.encryptionAlgorithm
+			);
+			const metadata: EncryptedFileMetadata = {
+				...encrypted,
+				originalExtension: file.extension,
+				originalPath: file.path
+			};
+
+			const encodedContent = CryptoService.encodeFileContent(metadata);
+			await this.app.vault.modify(file, encodedContent);
+
+			if (settings.useSecvaultExtension) {
+				const newPath = this.getSecvaultPath(file.path);
+				file = await this.renameFile(file, newPath);
 			}
 		}
 
 		const salt = CryptoService.generateSalt();
 		const iv = CryptoService.generateIV();
+		const refreshedFiles = this.getAllFilesInFolder(folder, true);
 
 		return {
 			path: folder.path,
-			salt: salt,
-			iv: iv,
+			salt,
+			iv,
 			isLocked: true,
 			createdAt: Date.now(),
 			lastModified: Date.now(),
-			encryptedFiles: encryptedFiles
+			encryptedFiles: refreshedFiles
+				.filter(f => ['md', 'secvault'].includes(f.extension.toLowerCase()))
+				.map(f => f.path)
 		};
 	}
 
@@ -102,16 +157,19 @@ export class VaultManager {
 			let decryptedCount = 0;
 			let skippedCount = 0;
 
-			for (const file of allFiles) {
-				if (file.extension === 'md') {
+			for (let file of allFiles) {
+				const extension = file.extension.toLowerCase();
+				if (extension === 'md' || extension === 'secvault') {
 					const content = await this.app.vault.read(file);
-					
+
 					// Check if file is encrypted
 					if (!this.isFileEncrypted(content)) {
-						skippedCount++;
+						if (extension === 'md') {
+							skippedCount++;
+						}
 						continue;
 					}
-					
+
 					const metadata = CryptoService.decodeFileContent(content);
 					
 					if (!metadata) {
@@ -127,12 +185,19 @@ export class VaultManager {
 
 					await this.app.vault.modify(file, decrypted);
 					decryptedCount++;
+
+					if (extension === 'secvault' && this.shouldUseSecvaultExtension()) {
+						const originalExt = metadata.originalExtension || 'md';
+						const newPath = file.path.replace(/\.secvault$/i, `.${originalExt}`);
+						file = await this.renameFile(file, newPath);
+					}
 				}
 			}
 
 			// Update encrypted files list with current state
-			encFolder.encryptedFiles = allFiles
-				.filter(f => f.extension === 'md')
+			const refreshedFiles = this.getAllFilesInFolder(folder, true);
+			encFolder.encryptedFiles = refreshedFiles
+				.filter(f => ['md', 'secvault'].includes(f.extension.toLowerCase()))
 				.map(f => f.path);
 			encFolder.isLocked = false;
 			encFolder.lastModified = Date.now();
@@ -159,8 +224,12 @@ export class VaultManager {
 			let encryptedCount = 0;
 			let skippedCount = 0;
 
-			for (const file of allFiles) {
-				if (file.extension === 'md') {
+			const settings = this.settings;
+
+			for (let file of allFiles) {
+				const extension = file.extension.toLowerCase();
+
+				if (extension === 'md') {
 					const content = await this.app.vault.read(file);
 					
 					// Skip if already encrypted
@@ -169,17 +238,32 @@ export class VaultManager {
 						continue;
 					}
 					
-					const encrypted = CryptoService.encrypt(content, password);
-					const encodedContent = CryptoService.encodeFileContent(encrypted);
+					const encrypted = CryptoService.encrypt(
+						content,
+						password,
+						this.settings.encryptionAlgorithm
+					);
+					const metadata: EncryptedFileMetadata = {
+						...encrypted,
+						originalExtension: extension,
+						originalPath: file.path
+					};
+					const encodedContent = CryptoService.encodeFileContent(metadata);
 					
 					await this.app.vault.modify(file, encodedContent);
 					encryptedCount++;
+
+					if (settings.useSecvaultExtension) {
+						const newPath = this.getSecvaultPath(file.path);
+						file = await this.renameFile(file, newPath);
+					}
 				}
 			}
 
 			// Update encrypted files list
-			encFolder.encryptedFiles = allFiles
-				.filter(f => f.extension === 'md')
+			const refreshedFiles = this.getAllFilesInFolder(folder, true);
+			encFolder.encryptedFiles = refreshedFiles
+				.filter(f => ['md', 'secvault'].includes(f.extension.toLowerCase()))
 				.map(f => f.path);
 			encFolder.isLocked = true;
 			encFolder.lastModified = Date.now();

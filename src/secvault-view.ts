@@ -6,11 +6,14 @@
 import { TextFileView, WorkspaceLeaf, Notice, TFile } from 'obsidian';
 import SecureVaultPlugin from '../main';
 import { PasswordModal, PreviewModal } from './ui';
+import { CryptoService } from './crypto';
+import { EncryptedFileMetadata } from './types';
 
 export const SECVAULT_VIEW_TYPE = 'secvault-view';
 
 export class SecVaultView extends TextFileView {
 	plugin: SecureVaultPlugin;
+	private currentFormat: 'single' | 'folder' | 'unknown' = 'unknown';
 
 	constructor(leaf: WorkspaceLeaf, plugin: SecureVaultPlugin) {
 		super(leaf);
@@ -55,39 +58,91 @@ export class SecVaultView extends TextFileView {
 		container.empty();
 		container.addClass('secvault-view-container');
 
-		// Parse encrypted data first to get all info
-		let encryptedData: any = null;
-		let isValidFormat = true;
-		
-		try {
-			encryptedData = JSON.parse(this.data);
-		} catch (error) {
-			isValidFormat = false;
+		const formatData = this.resolveFormat();
+		this.currentFormat = formatData.format;
+
+		this.renderHeader(container, formatData.format);
+		this.renderInfoCard(container, formatData);
+		this.renderActionsCard(container, formatData);
+		this.renderPreviewCard(container, formatData);
+		this.renderHelpBox(container, formatData.format);
+
+		// Add CSS styles
+		this.addStyles(container);
+	}
+
+	private resolveFormat(): {
+		format: 'single' | 'folder' | 'unknown';
+		jsonData?: any;
+		folderMetadata?: EncryptedFileMetadata | null;
+	} {
+		const rawData = (this.data || '').trim();
+
+		if (!rawData.length) {
+			return { format: 'unknown' };
 		}
 
-		// Header
+		try {
+			const parsed = JSON.parse(rawData);
+			if (parsed && typeof parsed === 'object' && (parsed.content || parsed.metadata)) {
+				return { format: 'single', jsonData: parsed };
+			}
+		} catch {
+			// Ignore parse error, will try legacy format
+		}
+
+		if (rawData.startsWith('---SECUREVAULT---')) {
+			const metadata = CryptoService.decodeFileContent(rawData);
+			if (metadata) {
+				return { format: 'folder', folderMetadata: metadata };
+			}
+		}
+
+		return { format: 'unknown' };
+	}
+
+	private renderHeader(container: HTMLElement, format: 'single' | 'folder' | 'unknown') {
 		const header = container.createDiv('secvault-header');
-		header.createEl('h2', { 
-			text: '🔒 SecureVault-Hades Encrypted File',
+
+		const titleText =
+			format === 'folder'
+				? '🔐 SecureVault-Hades Folder Encryption'
+				: '🔒 SecureVault-Hades Encrypted File';
+		header.createEl('h2', {
+			text: titleText,
 			cls: 'secvault-title'
 		});
 
-		// Show warning if invalid format
-		if (!isValidFormat) {
+		const subtitle =
+			format === 'folder'
+				? 'File ini merupakan bagian dari folder terenkripsi. Gunakan perintah Unlock Folder untuk membukanya.'
+				: format === 'single'
+					? 'File terenkripsi individual. Gunakan tombol di bawah untuk mendekripsi atau melihat sementara.'
+					: 'Format file tidak dikenali. Konten ditampilkan dalam bentuk mentah.';
+
+		header.createEl('p', {
+			text: subtitle,
+			cls: 'secvault-subtitle'
+		});
+
+		if (format === 'unknown') {
 			const warningDiv = container.createDiv('secvault-warning');
-			warningDiv.createEl('p', { 
-				text: '⚠️ Warning: File format may be corrupted or invalid',
+			warningDiv.createEl('p', {
+				text: '⚠️ File ini tidak sesuai format .secvault yang didukung. Pastikan proses enkripsi selesai dengan benar.',
 				cls: 'secvault-warning-text'
 			});
 		}
+	}
 
-		// Combined File & Encryption Info Card
+	private renderInfoCard(
+		container: HTMLElement,
+		formatData: { format: 'single' | 'folder' | 'unknown'; jsonData?: any; folderMetadata?: EncryptedFileMetadata | null }
+	) {
 		const infoCard = container.createDiv('secvault-info-card');
-		infoCard.createEl('h3', { text: '� File Information', cls: 'secvault-card-title' });
-		
+		infoCard.createEl('h3', { text: '📄 File Information', cls: 'secvault-card-title' });
+
 		const infoGrid = infoCard.createDiv('secvault-info-grid');
-		
-		// File info section
+
 		if (this.file) {
 			this.addInfoRow(infoGrid, '📄 Filename', this.file.name);
 			this.addInfoRow(infoGrid, '📂 Location', this.file.path);
@@ -95,128 +150,218 @@ export class SecVaultView extends TextFileView {
 			this.addInfoRow(infoGrid, '📅 Last Modified', new Date(this.file.stat.mtime).toLocaleString());
 			this.addInfoRow(infoGrid, '🆔 Extension', '.secvault');
 		}
-		
-		// Encryption metadata section
-		if (isValidFormat && encryptedData) {
-			const divider = infoGrid.createEl('div', { cls: 'secvault-divider' });
-			divider.createEl('h4', { text: '🔐 Encryption Details' });
-			
-			this.addInfoRow(infoGrid, '🔑 Algorithm', encryptedData.algorithm || 'AES-256-GCM');
-			this.addInfoRow(infoGrid, '📦 Type', encryptedData.type || 'text');
-			this.addInfoRow(infoGrid, '🏷️ Version', encryptedData.version || '1.0');
-			
-			if (encryptedData.metadata?.encryptedAt) {
-				this.addInfoRow(infoGrid, '🕐 Encrypted At', 
-					new Date(encryptedData.metadata.encryptedAt).toLocaleString());
-			}
-			
-			if (encryptedData.metadata?.originalExtension) {
-				this.addInfoRow(infoGrid, '📝 Original Type', 
-					encryptedData.metadata.originalExtension);
-			}
-		}
 
-		// Action buttons card
+		if (formatData.format === 'single' && formatData.jsonData) {
+			const divider = infoGrid.createDiv('secvault-divider');
+			divider.createEl('h4', { text: '🔐 Encryption Details' });
+
+			const metadata = formatData.jsonData.metadata ?? {};
+
+			this.addInfoRow(infoGrid, '🔑 Algorithm', formatData.jsonData.algorithm || metadata.algorithm || 'AES-256-GCM');
+			this.addInfoRow(infoGrid, '📦 Type', formatData.jsonData.type || metadata.type || 'text');
+			this.addInfoRow(infoGrid, '🏷️ Version', formatData.jsonData.version || '1.0');
+
+			if (metadata.encryptedAt) {
+				this.addInfoRow(
+					infoGrid,
+					'🕐 Encrypted At',
+					new Date(metadata.encryptedAt).toLocaleString()
+				);
+			}
+
+			if (metadata.originalExtension) {
+				this.addInfoRow(infoGrid, '📝 Original Type', metadata.originalExtension);
+			}
+		} else if (formatData.format === 'folder' && formatData.folderMetadata) {
+			const divider = infoGrid.createDiv('secvault-divider');
+			divider.createEl('h4', { text: '🔐 Folder Encryption Metadata' });
+
+			this.addInfoRow(infoGrid, '🔑 Algorithm', formatData.folderMetadata.algorithm);
+			this.addInfoRow(infoGrid, '🧂 Salt', formatData.folderMetadata.salt);
+			this.addInfoRow(infoGrid, '🌀 IV', formatData.folderMetadata.iv);
+
+			if (formatData.folderMetadata.originalExtension) {
+				this.addInfoRow(infoGrid, '📝 Original Extension', formatData.folderMetadata.originalExtension);
+			}
+		} else if (formatData.format === 'unknown') {
+			const emptyNotice = infoGrid.createDiv('secvault-info-empty');
+			emptyNotice.textContent = 'Metadata tidak tersedia untuk format ini.';
+		}
+	}
+
+	private renderActionsCard(
+		container: HTMLElement,
+		formatData: { format: 'single' | 'folder' | 'unknown' }
+	) {
 		const actionsCard = container.createDiv('secvault-actions-card');
 		actionsCard.createEl('h3', { text: '⚡ Available Actions', cls: 'secvault-card-title' });
-		
+
 		const actionsGrid = actionsCard.createDiv('secvault-actions-grid');
-		
-		// Decrypt permanently button
+
 		const decryptAction = actionsGrid.createDiv('secvault-action-item');
-		const decryptBtn = decryptAction.createEl('button', { 
+		const decryptBtn = decryptAction.createEl('button', {
 			text: '🔓 Decrypt & Restore',
 			cls: 'mod-cta secvault-action-btn'
 		});
+		if (formatData.format !== 'single') {
+			decryptBtn.setAttribute('disabled', 'true');
+			decryptBtn.addClass('is-disabled');
+		}
 		decryptBtn.addEventListener('click', async () => {
 			await this.decryptFile();
 		});
-		decryptAction.createEl('p', { 
-			text: 'Permanently decrypt this file and convert back to original format (.md)',
+		decryptAction.createEl('p', {
+			text:
+				formatData.format === 'single'
+					? 'Permanently decrypt this file and convert back to original format (.md)'
+					: 'Gunakan perintah Unlock Folder untuk mengembalikan file ke kondisi semula.',
 			cls: 'secvault-action-desc'
 		});
 
-		// Quick view button
 		const viewAction = actionsGrid.createDiv('secvault-action-item');
-		const quickViewBtn = viewAction.createEl('button', { 
+		const quickViewBtn = viewAction.createEl('button', {
 			text: '👁️ Quick View',
 			cls: 'mod-warning secvault-action-btn'
 		});
+		if (formatData.format !== 'single') {
+			quickViewBtn.setAttribute('disabled', 'true');
+			quickViewBtn.addClass('is-disabled');
+		}
 		quickViewBtn.addEventListener('click', async () => {
 			await this.quickViewFile();
 		});
-		viewAction.createEl('p', { 
-			text: 'Temporarily view content without decrypting (read-only, requires password)',
+		viewAction.createEl('p', {
+			text:
+				formatData.format === 'single'
+					? 'Temporarily view content without decrypting (read-only, requires password)'
+					: 'Pratinjau cepat tidak tersedia untuk file hasil enkripsi folder.',
 			cls: 'secvault-action-desc'
 		});
+	}
 
-		// Encrypted content preview card
+	private renderPreviewCard(
+		container: HTMLElement,
+		formatData: { format: 'single' | 'folder' | 'unknown'; jsonData?: any; folderMetadata?: EncryptedFileMetadata | null }
+	) {
 		const previewCard = container.createDiv('secvault-preview-card');
 		previewCard.createEl('h3', { text: '🔒 Encrypted Content', cls: 'secvault-card-title' });
-		
+
 		const previewContainer = previewCard.createDiv('secvault-preview-container');
 		const preview = previewContainer.createEl('div', { cls: 'secvault-encrypted-text' });
-		
-		// Show formatted encrypted content preview
-		if (isValidFormat && encryptedData) {
-			const contentPreview = encryptedData.content 
-				? (encryptedData.content.substring(0, 300) + '...') 
-				: this.data.substring(0, 300) + '...';
-			preview.textContent = contentPreview;
-			
-			// Add content stats
-			const stats = previewContainer.createDiv('secvault-content-stats');
-			const totalChars = encryptedData.content ? encryptedData.content.length : this.data.length;
-			stats.createEl('span', { 
-				text: `📊 Total encrypted characters: ${totalChars.toLocaleString()}`,
-				cls: 'secvault-stat-item'
-			});
-		} else {
-			preview.textContent = this.data.substring(0, 300) + '...';
+
+		let previewText = this.data.substring(0, 300) + (this.data.length > 300 ? '...' : '');
+		let totalChars = this.data.length;
+
+		if (formatData.format === 'single' && formatData.jsonData?.content) {
+			previewText = formatData.jsonData.content.substring(0, 300) + (formatData.jsonData.content.length > 300 ? '...' : '');
+			totalChars = formatData.jsonData.content.length;
+		} else if (formatData.format === 'folder' && formatData.folderMetadata?.content) {
+			previewText = formatData.folderMetadata.content.substring(0, 300) + (formatData.folderMetadata.content.length > 300 ? '...' : '');
+			totalChars = formatData.folderMetadata.content.length;
 		}
 
-		// Help box
-		const helpBox = container.createDiv('secvault-help-box');
-		helpBox.innerHTML = `
-			<div class="secvault-help-header">
-				<strong>💡 About This File</strong>
-			</div>
-			<div class="secvault-help-content">
-				<p>This file is <strong>encrypted and protected</strong> by <strong>SecureVault-Hades</strong>.</p>
-				
-				<div class="secvault-help-section">
-					<strong>🔐 Security Features:</strong>
-					<ul>
-						<li>AES-256-GCM or ChaCha20-Poly1305 encryption</li>
-						<li>PBKDF2 key derivation (100,000 iterations)</li>
-						<li>Password-protected with optional key file</li>
-					</ul>
-				</div>
-				
-				<div class="secvault-help-section">
-					<strong>📝 Usage Notes:</strong>
-					<ul>
-						<li>This file <strong>cannot be edited</strong> while encrypted</li>
-						<li>Use <strong>🔓 Decrypt & Restore</strong> to permanently decrypt</li>
-						<li>Use <strong>👁️ Quick View</strong> for temporary read-only access</li>
-						<li>The file will be renamed back to <strong>.md</strong> after decryption</li>
-					</ul>
-				</div>
-				
-				<div class="secvault-help-footer">
-					<strong>⚠️ Important:</strong> Keep your password safe! Without it, this file cannot be recovered.
-				</div>
-			</div>
-		`;
+		preview.textContent = previewText;
 
-		// Add CSS styles
-		this.addStyles(container);
+		const stats = previewContainer.createDiv('secvault-content-stats');
+		stats.createEl('span', {
+			text: `📊 Total encrypted characters: ${totalChars.toLocaleString()}`,
+			cls: 'secvault-stat-item'
+		});
+	}
+
+	private renderHelpBox(container: HTMLElement, format: 'single' | 'folder' | 'unknown') {
+		const helpBox = container.createDiv('secvault-help-box');
+		if (format === 'single') {
+			helpBox.innerHTML = `
+				<div class="secvault-help-header">
+					<strong>💡 About This File</strong>
+				</div>
+				<div class="secvault-help-content">
+					<p>This file is <strong>encrypted and protected</strong> by <strong>SecureVault-Hades</strong>.</p>
+					
+					<div class="secvault-help-section">
+						<strong>🔐 Security Features:</strong>
+						<ul>
+							<li>AES-256-GCM or ChaCha20-Poly1305 encryption</li>
+							<li>PBKDF2 key derivation (100,000 iterations)</li>
+							<li>Password-protected with optional key file</li>
+						</ul>
+					</div>
+					
+					<div class="secvault-help-section">
+						<strong>📝 Usage Notes:</strong>
+						<ul>
+							<li>This file <strong>cannot be edited</strong> while encrypted</li>
+							<li>Use <strong>🔓 Decrypt & Restore</strong> to permanently decrypt</li>
+							<li>Use <strong>👁️ Quick View</strong> for temporary read-only access</li>
+							<li>The file will be renamed back to <strong>.md</strong> after decryption</li>
+						</ul>
+					</div>
+					
+					<div class="secvault-help-footer">
+						<strong>⚠️ Important:</strong> Keep your password safe! Without it, this file cannot be recovered.
+					</div>
+				</div>
+			`;
+		} else if (format === 'folder') {
+			helpBox.innerHTML = `
+				<div class="secvault-help-header">
+					<strong>📁 Folder Encryption</strong>
+				</div>
+				<div class="secvault-help-content">
+					<p>File ini dienkripsi sebagai bagian dari folder yang dikunci menggunakan SecureVault-Hades.</p>
+					
+					<div class="secvault-help-section">
+						<strong>🧭 Cara membuka:</strong>
+						<ul>
+							<li>Buka sidebar SecureVault-Hades.</li>
+							<li>Pilih folder terkait lalu tekan <strong>Unlock</strong>.</li>
+							<li>Semua file di dalam folder akan otomatis kembali ke format semula.</li>
+						</ul>
+					</div>
+					
+					<div class="secvault-help-section">
+						<strong>🔒 Keamanan:</strong>
+						<ul>
+							<li>Setiap file memiliki IV dan salt unik.</li>
+							<li>Ekstensi file berubah menjadi <code>.secvault</code> saat terkunci.</li>
+							<li>Metadata asli disimpan untuk proses pemulihan.</li>
+						</ul>
+					</div>
+					
+					<div class="secvault-help-footer">
+						<strong>ℹ️ Tip:</strong> Gunakan perintah Lock/Unlock Folder untuk menjaga folder tetap tersinkronisasi.
+					</div>
+				</div>
+			`;
+		} else {
+			helpBox.innerHTML = `
+				<div class="secvault-help-header">
+					<strong>⚠️ Format Tidak Dikenal</strong>
+				</div>
+				<div class="secvault-help-content">
+					<p>SecureVault-Hades tidak dapat mengenali struktur file ini. Pastikan file dibuat melalui proses enkripsi plugin.</p>
+					<div class="secvault-help-section">
+						<strong>Langkah yang disarankan:</strong>
+						<ul>
+							<li>Periksa history perubahan atau backup.</li>
+							<li>Jika file penting, simpan salinan sebelum mencoba memulihkan.</li>
+						</ul>
+					</div>
+				</div>
+			`;
+		}
 	}
 
 	/**
 	 * Decrypt the file
 	 */
 	private async decryptFile(): Promise<void> {
+		if (this.currentFormat !== 'single') {
+			new Notice('ℹ️ Gunakan perintah Unlock Folder untuk file hasil enkripsi folder.');
+			return;
+		}
+
 		if (!this.file) {
 			new Notice('❌ No file to decrypt');
 			return;
@@ -255,6 +400,11 @@ export class SecVaultView extends TextFileView {
 	 * Quick view (temporary decrypt in memory)
 	 */
 	private async quickViewFile(): Promise<void> {
+		if (this.currentFormat !== 'single') {
+			new Notice('ℹ️ Quick view hanya tersedia untuk file terenkripsi individual.');
+			return;
+		}
+
 		if (!this.file) {
 			new Notice('❌ No file to view');
 			return;
@@ -345,6 +495,13 @@ export class SecVaultView extends TextFileView {
 				font-weight: 600;
 				text-shadow: 0 2px 4px rgba(0,0,0,0.2);
 			}
+
+			.secvault-subtitle {
+				color: var(--text-on-accent);
+				opacity: 0.85;
+				font-size: 0.95em;
+				margin-top: 10px;
+			}
 			
 			.secvault-warning {
 				background: var(--background-modifier-error);
@@ -382,6 +539,15 @@ export class SecVaultView extends TextFileView {
 			.secvault-info-grid {
 				display: grid;
 				gap: 12px;
+			}
+
+			.secvault-info-empty {
+				grid-column: 1 / -1;
+				padding: 12px 16px;
+				background: var(--background-modifier-hover);
+				border-radius: 6px;
+				color: var(--text-muted);
+				font-style: italic;
 			}
 			
 			.secvault-info-row {
@@ -443,6 +609,14 @@ export class SecVaultView extends TextFileView {
 				font-weight: 600;
 				border-radius: 8px;
 				transition: all 0.2s ease;
+			}
+
+			.secvault-action-btn.is-disabled {
+				opacity: 0.5;
+				cursor: not-allowed;
+				transform: none;
+				box-shadow: none;
+				pointer-events: none;
 			}
 			
 			.secvault-action-btn:hover {
