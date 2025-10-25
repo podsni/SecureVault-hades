@@ -127,6 +127,14 @@ export default class SecureVaultPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'open-securevault-sidebar',
+			name: 'Open SecureVault sidebar',
+			callback: async () => {
+				await this.activateSecureVaultSidebar();
+			}
+		});
+
+		this.addCommand({
 			id: 'encrypt-current-folder',
 			name: 'Encrypt current folder',
 			callback: () => {

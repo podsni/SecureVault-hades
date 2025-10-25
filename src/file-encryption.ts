@@ -177,32 +177,21 @@ export class FileEncryptionManager {
 		keyFileContent?: string
 	): Promise<boolean> {
 		try {
-			// Read encrypted content
-			const encryptedContent = await this.app.vault.read(file);
-			
-			// Parse encrypted data
-			const encryptedData = JSON.parse(encryptedContent);
-			
-			// Get metadata to restore original extension
-			const metadata = encryptedData.metadata as EncryptedFile | undefined;
-			const originalExtension = metadata?.originalExtension || 'md';
-			
-			// Combine password with key file if available
-			const masterKey = keyFileContent 
-				? password + keyFileContent 
-				: password;
+			const rawContent = await this.app.vault.read(file);
+			const parsed = this.parseEncryptedPayload(rawContent);
+			if (!parsed) {
+				new Notice('❌ Unsupported encrypted file format');
+				return false;
+			}
 
-			// Decrypt
-			const decrypted = CryptoService.decrypt(encryptedData, masterKey);
-
+			const masterKey = keyFileContent ? password + keyFileContent : password;
+			const decrypted = CryptoService.decrypt(parsed.payload, masterKey);
 			if (!decrypted) {
 				new Notice('❌ Decryption failed - wrong password?');
 				return false;
 			}
 
-			// Write decrypted content
-			if (encryptedData.type === 'binary') {
-				// Convert base64 string back to ArrayBuffer
+			if (parsed.contentType === 'binary') {
 				const binaryString = atob(decrypted);
 				const bytes = new Uint8Array(binaryString.length);
 				for (let i = 0; i < binaryString.length; i++) {
@@ -213,20 +202,21 @@ export class FileEncryptionManager {
 				await this.app.vault.modify(file, decrypted);
 			}
 
-			// Rename back from .secvault to original extension if needed
 			let finalFile = file;
-			if (file.extension === 'secvault' && this.plugin.settings.useSecvaultExtension) {
-				const newPath = file.path.replace(/\.secvault$/, `.${originalExtension}`);
+			if (
+				file.extension === 'secvault' &&
+				this.plugin.settings.useSecvaultExtension &&
+				parsed.originalExtension
+			) {
+				const sanitizedExt = parsed.originalExtension.startsWith('.')
+					? parsed.originalExtension.substring(1)
+					: parsed.originalExtension;
+				const newPath = file.path.replace(/\.secvault$/i, `.${sanitizedExt}`);
 				await this.app.fileManager.renameFile(file, newPath);
-				
-				// Update file reference
 				const renamedFile = this.app.vault.getAbstractFileByPath(newPath);
-				if (renamedFile instanceof TFile) {
-					finalFile = renamedFile;
-				}
+				if (renamedFile instanceof TFile) finalFile = renamedFile;
 			}
 
-			// Remove from encrypted files
 			this.encryptedFiles.delete(file.path);
 			this.encryptedFiles.delete(finalFile.path);
 			await this.saveEncryptedFiles();
@@ -252,24 +242,25 @@ export class FileEncryptionManager {
 		keyFileContent?: string
 	): Promise<string | null> {
 		try {
-			// Read encrypted content
-			const encryptedContent = await this.app.vault.read(file);
-			const encryptedData = JSON.parse(encryptedContent);
-			
-			// Combine password with key file
-			const masterKey = keyFileContent 
-				? password + keyFileContent 
-				: password;
+			const rawContent = await this.app.vault.read(file);
+			const parsed = this.parseEncryptedPayload(rawContent);
+			if (!parsed) {
+				new Notice('❌ Unsupported encrypted file format');
+				return null;
+			}
 
-			// Decrypt in memory
-			const decrypted = CryptoService.decrypt(encryptedData, masterKey);
+			if (parsed.contentType === 'binary') {
+				new Notice('ℹ️ Preview not available for encrypted binary files. Please decrypt instead.');
+				return null;
+			}
 
+			const masterKey = keyFileContent ? password + keyFileContent : password;
+			const decrypted = CryptoService.decrypt(parsed.payload, masterKey);
 			if (!decrypted) {
 				new Notice('❌ Quick unlock failed - wrong password?');
 				return null;
 			}
 
-			// Mark as quick-unlocked
 			this.quickUnlockedFiles.set(file.path, Date.now());
 
 			new Notice(`🔓 File quick-unlocked: ${file.name} (${this.plugin.settings.quickUnlockTimeout} min)`);
@@ -334,6 +325,43 @@ export class FileEncryptionManager {
 		const filesList = Array.from(this.encryptedFiles.values());
 		(this.plugin.settings as any).encryptedFilesList = filesList;
 		await this.plugin.saveSettings();
+	}
+
+	private parseEncryptedPayload(rawContent: string): {
+		payload: any;
+		contentType: 'text' | 'binary';
+		originalExtension?: string;
+	} | null {
+		const trimmed = rawContent.trim();
+
+		// JSON format (individual file encryption)
+		try {
+			const json = JSON.parse(trimmed);
+			const metadata = json.metadata as EncryptedFile | undefined;
+			const contentType = (json.type as 'text' | 'binary') ?? 'text';
+
+			return {
+				payload: json,
+				contentType,
+				originalExtension: metadata?.originalExtension ?? json.originalExtension
+			};
+		} catch {
+			// Ignore JSON parse errors, try legacy format
+		}
+
+		// Legacy / folder encryption format
+		if (trimmed.startsWith('---SECUREVAULT---')) {
+			const decoded = CryptoService.decodeFileContent(trimmed);
+			if (!decoded) return null;
+
+			return {
+				payload: decoded,
+				contentType: decoded.contentType ?? 'text',
+				originalExtension: decoded.originalExtension
+			};
+		}
+
+		return null;
 	}
 
 	/**

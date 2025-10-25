@@ -8,6 +8,7 @@ import { App, TFile, TFolder, Notice } from 'obsidian';
 import SecureVaultPlugin from '../../main';
 import { PreviewModal } from '../ui';
 import { PasswordModal } from '../modals';
+import { CryptoService } from '../crypto';
 
 export class PreviewService {
 	constructor(
@@ -25,19 +26,15 @@ export class PreviewService {
 		}
 
 		const rawContent = (await this.app.vault.read(file)).trim();
-		if (rawContent.startsWith('---SECUREVAULT---')) {
-			new Notice('ℹ️ Preview tidak tersedia untuk file hasil enkripsi folder. Gunakan Unlock Folder.');
+		const payloadInfo = this.getPayloadInfo(rawContent);
+		if (!payloadInfo) {
+			new Notice('❌ Unsupported encrypted file format.');
 			return;
 		}
 
-		try {
-			const parsed = JSON.parse(rawContent);
-			if (parsed?.type === 'binary') {
-				new Notice('ℹ️ Preview tidak tersedia untuk file biner terenkripsi. Gunakan decrypt untuk memulihkan.');
-				return;
-			}
-		} catch {
-			// Ignore JSON parse errors for legacy format
+		if (payloadInfo.contentType === 'binary') {
+			new Notice('ℹ️ Preview tidak tersedia untuk file biner terenkripsi. Gunakan decrypt untuk memulihkan.');
+			return;
 		}
 
 		new PasswordModal(this.app, this.plugin.settings, async (password: string) => {
@@ -154,5 +151,24 @@ export class PreviewService {
 	 */
 	folderHasEncryptedFiles(folder: TFolder): boolean {
 		return this.getAllSecvaultFiles(folder).length > 0;
+	}
+
+	private getPayloadInfo(rawContent: string): { contentType: 'text' | 'binary' } | null {
+		const trimmed = rawContent.trim();
+
+		try {
+			const json = JSON.parse(trimmed);
+			const type = (json.type as 'text' | 'binary') ?? 'text';
+			return { contentType: type };
+		} catch {
+			// Ignore JSON parsing errors
+		}
+
+		if (trimmed.startsWith('---SECUREVAULT---')) {
+			const metadata = CryptoService.decodeFileContent(trimmed);
+			if (metadata) return { contentType: metadata.contentType ?? 'text' };
+		}
+
+		return null;
 	}
 }
