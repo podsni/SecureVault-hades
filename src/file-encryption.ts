@@ -20,6 +20,7 @@ export interface EncryptedFile {
 export class FileEncryptionManager {
 	private plugin: SecureVaultPlugin;
 	private app: App;
+	private payloadCache: Map<string, CachedPayloadEntry> = new Map();
 	
 	// Track individually encrypted files
 	private encryptedFiles: Map<string, EncryptedFile> = new Map();
@@ -152,6 +153,7 @@ export class FileEncryptionManager {
 			}
 			
 			this.encryptedFiles.set(finalFile.path, metadata);
+ 			this.invalidatePayloadCache(file.path, finalFile.path);
 
 			// Save to plugin settings
 			await this.saveEncryptedFiles();
@@ -178,8 +180,7 @@ export class FileEncryptionManager {
 		cachedContent?: string
 	): Promise<boolean> {
 		try {
-			const rawContent = cachedContent ?? await this.app.vault.read(file);
-			const parsed = this.parseEncryptedPayload(rawContent);
+			const parsed = await this.getParsedPayload(file, cachedContent);
 			if (!parsed) {
 				new Notice('❌ Unsupported encrypted file format');
 				return false;
@@ -221,6 +222,7 @@ export class FileEncryptionManager {
 			this.encryptedFiles.delete(file.path);
 			this.encryptedFiles.delete(finalFile.path);
 			await this.saveEncryptedFiles();
+			this.invalidatePayloadCache(file.path, finalFile.path);
 
 			new Notice(`🔓 File decrypted: ${finalFile.name}`);
 			console.log('File decrypted:', finalFile.path);
@@ -244,8 +246,7 @@ export class FileEncryptionManager {
 		cachedContent?: string
 	): Promise<string | null> {
 		try {
-			const rawContent = cachedContent ?? await this.app.vault.read(file);
-			const parsed = this.parseEncryptedPayload(rawContent);
+			const parsed = await this.getParsedPayload(file, cachedContent);
 			if (!parsed) {
 				new Notice('❌ Unsupported encrypted file format');
 				return null;
@@ -329,11 +330,7 @@ export class FileEncryptionManager {
 		await this.plugin.saveSettings();
 	}
 
-	private parseEncryptedPayload(rawContent: string): {
-		payload: any;
-		contentType: 'text' | 'binary';
-		originalExtension?: string;
-	} | null {
+	private parseEncryptedPayload(rawContent: string): ParsedPayload | null {
 		const trimmed = rawContent.trim();
 
 		// JSON format (individual file encryption)
@@ -379,4 +376,39 @@ export class FileEncryptionManager {
 	getQuickUnlockedFiles(): string[] {
 		return Array.from(this.quickUnlockedFiles.keys());
 	}
+
+	private async getParsedPayload(
+		file: TFile,
+		cachedContent?: string
+	): Promise<ParsedPayload | null> {
+		const statMtime = file.stat?.mtime ?? Date.now();
+		const cached = this.payloadCache.get(file.path);
+		if (cached && cached.mtime === statMtime) {
+			return cached.data;
+		}
+
+		const rawContent = cachedContent ?? await this.app.vault.read(file);
+		const parsed = this.parseEncryptedPayload(rawContent);
+		if (parsed) {
+			this.payloadCache.set(file.path, { data: parsed, mtime: statMtime });
+		}
+		return parsed;
+	}
+
+	private invalidatePayloadCache(...paths: string[]) {
+		for (const path of paths) {
+			if (path) this.payloadCache.delete(path);
+		}
+	}
+}
+
+interface ParsedPayload {
+	payload: any;
+	contentType: 'text' | 'binary';
+	originalExtension?: string;
+}
+
+interface CachedPayloadEntry {
+	data: ParsedPayload;
+	mtime: number;
 }
