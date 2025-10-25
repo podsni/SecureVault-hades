@@ -1,0 +1,571 @@
+/* SecureVault+ Styles */
+
+/* Quick Menu Modal */
+.securevault-quick-menu {
+	padding: 20px;
+	min-width: 450px;
+	max-width: 600px;
+}
+
+.securevault-title {
+	text-align: center;
+	margin-bottom: 20px;
+	font-size: 1.5em;
+	color: var(--text-accent);
+}
+
+.securevault-summary {
+	background: var(--background-secondary);
+	padding: 15px;
+	border-radius: 8px;
+	margin-bottom: 20px;
+	display: flex;
+	justify-content: space-around;
+	flex-wrap: wrap;
+	gap: 10px;
+	border: 1px solid var(--background-modifier-border);
+}
+
+.summary-item {
+	font-weight: 600;
+	font-size: 1em;
+	padding: 5px 10px;
+	text-align: center;
+}
+
+.summary-item.locked {
+	color: var(--text-error);
+	font-weight: 700;
+}
+
+.summary-item.unlocked {
+	color: var(--text-success);
+	font-weight: 700;
+}
+
+.summary-item.algo {
+	background: var(--interactive-accent);
+	color: white;
+	border-radius: 5px;
+	padding: 5px 12px;
+	font-weight: 700;
+	font-size: 0.9em;
+}
+
+.securevault-footer {
+	margin-top: 20px;
+	padding-top: 15px;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.securevault-footer strong {
+	display: block;
+	margin-bottom: 8px;
+	color: var(--text-accent);
+}
+
+.securevault-footer div {
+	margin: 4px 0;
+	font-size: 0.9em;
+}
+
+.securevault-tip {
+	font-style: italic;
+	opacity: 0.7;
+	display: block;
+	margin-top: 10px;
+}
+
+/* Help Section */
+.securevault-help {
+	background: var(--background-secondary);
+	padding: 12px;
+	border-radius: 6px;
+	border-left: 3px solid var(--text-accent);
+	margin: 10px 0;
+}
+
+.securevault-help strong {
+	display: block;
+	margin-bottom: 8px;
+	color: var(--text-accent);
+}
+
+.securevault-help div {
+	margin: 4px 0;
+	font-size: 0.9em;
+	color: var(--text-muted);
+}
+
+/* Folder Items with Status */
+.folder-item-encrypted .setting-item-description {
+	color: var(--text-error) !important;
+	font-weight: 500;
+}
+
+.folder-item-decrypted .setting-item-description {
+	color: var(--text-success) !important;
+	font-weight: 500;
+}
+
+/* Setting Items in Modal */
+.securevault-quick-menu .setting-item {
+	border: none;
+	padding: 10px;
+	margin-bottom: 5px;
+	border-radius: 5px;
+	transition: background-color 0.2s;
+}
+
+.securevault-quick-menu .setting-item:hover {
+	background-color: var(--background-secondary);
+}
+
+.securevault-quick-menu .setting-item-name {
+	font-weight: 600;
+	font-size: 1em;
+}
+
+.securevault-quick-menu .setting-item-description {
+	color: var(--text-muted);
+	font-size: 0.9em;
+}
+
+/* Buttons in Modal */
+.securevault-quick-menu button {
+	min-width: 100px;
+	padding: 6px 15px;
+	border-radius: 5px;
+	font-weight: 500;
+	cursor: pointer;
+	transition: all 0.2s;
+}
+
+.securevault-quick-menu button:hover {
+	transform: translateY(-1px);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.securevault-quick-menu button:active {
+	transform: translateY(0);
+}
+
+/* Button Color Styles */
+.unlock-btn {
+	background-color: var(--interactive-success) !important;
+	color: white !important;
+}
+
+.unlock-btn:hover {
+	opacity: 0.9;
+}
+
+.lock-btn {
+	background-color: var(--interactive-normal) !important;
+}
+
+.lock-btn:hover {
+	opacity: 0.8;
+}
+
+/* Status Bar Clickable */
+.status-bar-item.mod-clickable {
+	cursor: pointer;
+	transition: opacity 0.2s, background-color 0.2s;
+	padding: 0 10px;
+	border-radius: 3px;
+}
+
+.status-bar-item.mod-clickable:hover {
+	opacity: 0.8;
+	background-color: var(--background-modifier-hover);
+}
+
+/* Dividers */
+.securevault-quick-menu hr {
+	margin: 20px 0;
+	border: none;
+	border-top: 1px solid var(--background-modifier-border);
+	opacity: 0.5;
+}
+
+/* Section Headers */
+.securevault-quick-menu h3 {
+	font-size: 1.1em;
+	margin: 15px 0 10px 0;
+	color: var(--text-accent);
+	font-weight: 600;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+	.securevault-quick-menu {
+		padding: 15px;
+		min-width: unset;
+		width: 100%;
+	}
+	
+	.securevault-title {
+		font-size: 1.3em;
+	}
+	
+	.summary-item {
+		font-size: 0.95em;
+		flex: 1 1 calc(50% - 5px);
+	}
+	
+	.securevault-quick-menu button {
+		min-width: 80px;
+		font-size: 0.9em;
+	}
+	
+	.securevault-quick-menu .setting-item-name {
+		font-size: 0.95em;
+	}
+	
+	.securevault-quick-menu .setting-item-description {
+		font-size: 0.85em;
+	}
+	
+	.securevault-help div {
+		font-size: 0.85em;
+	}
+	
+	.securevault-footer div {
+		font-size: 0.85em;
+	}
+}
+
+/* Small Mobile */
+@media (max-width: 480px) {
+	.summary-item {
+		flex: 1 1 100%;
+	}
+	
+	.securevault-summary {
+		padding: 10px;
+	}
+}
+
+/* Dark/Light Theme Support */
+.theme-dark .securevault-summary {
+	background: var(--background-secondary);
+}
+
+.theme-light .securevault-summary {
+	background: var(--background-secondary);
+}
+
+.theme-dark .securevault-help {
+	background: var(--background-secondary);
+}
+
+.theme-light .securevault-help {
+	background: var(--background-secondary);
+}
+
+/* Animations */
+@keyframes fadeIn {
+	from {
+		opacity: 0;
+		transform: translateY(-10px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.securevault-quick-menu {
+	animation: fadeIn 0.3s ease-out;
+}
+
+/* Password Strength Meter */
+.password-strength-meter {
+	margin: 10px 0;
+}
+
+.strength-bar-container {
+	width: 100%;
+	height: 8px;
+	background: #e0e0e0;
+	border-radius: 4px;
+	overflow: hidden;
+	margin-bottom: 8px;
+}
+
+.strength-bar {
+	height: 100%;
+	transition: all 0.3s ease;
+	border-radius: 4px 0 0 4px;
+}
+
+.strength-label {
+	display: flex;
+	justify-content: space-between;
+	font-size: 0.9em;
+	margin-bottom: 8px;
+}
+
+.strength-suggestions {
+	margin-top: 8px;
+	padding: 8px;
+	background: var(--background-secondary);
+	border-radius: 4px;
+	font-size: 0.85em;
+}
+
+.strength-suggestions ul {
+	margin: 4px 0 0 20px;
+	padding: 0;
+}
+
+.strength-suggestions li {
+	margin: 2px 0;
+}
+
+/* Visual Lock/Unlock Indicators */
+.lock-indicator {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 4px 10px;
+	border-radius: 4px;
+	font-weight: 600;
+	font-size: 0.9em;
+	transition: all 0.3s ease;
+}
+
+.lock-indicator.locked {
+	background: rgba(255, 68, 68, 0.1);
+	color: #ff4444;
+	border: 1px solid #ff4444;
+}
+
+.lock-indicator.unlocked {
+	background: rgba(0, 204, 0, 0.1);
+	color: #00cc00;
+	border: 1px solid #00cc00;
+}
+
+.lock-indicator.processing {
+	background: rgba(255, 153, 0, 0.1);
+	color: #ff9900;
+	border: 1px solid #ff9900;
+	animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.6; }
+}
+
+.lock-indicator::before {
+	content: '';
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: currentColor;
+	animation: blink 2s ease-in-out infinite;
+}
+
+@keyframes blink {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.3; }
+}
+
+/* Access Log Modal */
+.securevault-access-log-modal {
+	padding: 20px;
+	min-width: 600px;
+	max-width: 800px;
+}
+
+.log-summary {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+	gap: 10px;
+	margin-bottom: 20px;
+}
+
+.summary-stat {
+	padding: 15px;
+	background: var(--background-secondary);
+	border-radius: 4px;
+	text-align: center;
+	transition: transform 0.2s ease;
+}
+
+.summary-stat:hover {
+	transform: translateY(-2px);
+}
+
+.stat-label {
+	font-size: 0.85em;
+	color: var(--text-muted);
+	margin-bottom: 5px;
+}
+
+.stat-value {
+	font-size: 24px;
+	font-weight: bold;
+	margin-top: 5px;
+}
+
+.log-entries {
+	max-height: 400px;
+	overflow-y: auto;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	padding: 10px;
+	background: var(--background-primary);
+}
+
+.log-entry {
+	padding: 10px;
+	margin-bottom: 8px;
+	background: var(--background-secondary);
+	border-radius: 4px;
+	transition: all 0.2s ease;
+}
+
+.log-entry:hover {
+	transform: translateX(3px);
+	box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.log-header {
+	display: flex;
+	justify-content: space-between;
+	margin-bottom: 4px;
+	font-weight: bold;
+}
+
+.log-timestamp {
+	font-size: 0.85em;
+	color: var(--text-muted);
+	font-weight: normal;
+}
+
+.log-details {
+	margin-top: 4px;
+	font-size: 0.9em;
+	color: var(--text-muted);
+	font-style: italic;
+}
+
+/* Password Input with Show/Hide Toggle */
+.securevault-password-input {
+	width: 100%;
+}
+
+/* Key File Indicators */
+.key-file-indicator {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 2px 8px;
+	background: rgba(51, 153, 255, 0.1);
+	border: 1px solid #3399ff;
+	border-radius: 3px;
+	font-size: 0.85em;
+	color: #3399ff;
+}
+
+.key-file-indicator::before {
+	content: '🔑';
+	font-size: 1em;
+}
+
+/* Unlock/Lock Button Enhanced */
+.unlock-btn {
+	background: linear-gradient(135deg, #00cc00 0%, #009900 100%) !important;
+	color: white !important;
+	border: none !important;
+	transition: all 0.3s ease !important;
+	position: relative;
+	overflow: hidden;
+}
+
+.unlock-btn:hover {
+	transform: translateY(-1px);
+	box-shadow: 0 4px 8px rgba(0, 204, 0, 0.3);
+}
+
+.unlock-btn::after {
+	content: '🔓';
+	position: absolute;
+	right: 8px;
+	top: 50%;
+	transform: translateY(-50%);
+	font-size: 1.2em;
+}
+
+.lock-btn {
+	background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%) !important;
+	color: white !important;
+	border: none !important;
+	transition: all 0.3s ease !important;
+	position: relative;
+	overflow: hidden;
+}
+
+.lock-btn:hover {
+	transform: translateY(-1px);
+	box-shadow: 0 4px 8px rgba(255, 68, 68, 0.3);
+}
+
+.lock-btn::after {
+	content: '🔒';
+	position: absolute;
+	right: 8px;
+	top: 50%;
+	transform: translateY(-50%);
+	font-size: 1.2em;
+}
+
+/* Processing Animation */
+.processing-overlay {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: rgba(0, 0, 0, 0.5);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 10000;
+}
+
+.processing-spinner {
+	width: 60px;
+	height: 60px;
+	border: 4px solid rgba(255, 255, 255, 0.3);
+	border-top-color: var(--interactive-accent);
+	border-radius: 50%;
+	animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+	to { transform: rotate(360deg); }
+}
+
+/* Touch Friendly */
+@media (hover: none) and (pointer: coarse) {
+	.securevault-quick-menu button {
+		min-height: 40px;
+		padding: 8px 15px;
+	}
+	
+	.securevault-quick-menu .setting-item {
+		padding: 12px;
+		margin-bottom: 8px;
+	}
+	
+	.log-entry {
+		padding: 12px;
+		margin-bottom: 10px;
+	}
+}

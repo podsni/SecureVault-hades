@@ -1,0 +1,230 @@
+name: Release Obsidian Plugin
+
+on:
+  push:
+    tags:
+      - '*.*.*'
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version to release (e.g., 1.4.0 or v1.4.0)'
+        required: true
+        type: string
+        default: '1.4.0'
+      prerelease:
+        description: 'Mark as prerelease'
+        required: false
+        default: false
+        type: boolean
+      draft:
+        description: 'Create as draft release'
+        required: false
+        default: false
+        type: boolean
+      auto_tag:
+        description: 'Auto-create git tag if not exists'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build plugin
+        run: npm run build
+
+      - name: Verify build artifacts
+        run: |
+          test -f main.js || (echo 'main.js missing' && exit 1)
+          test -f manifest.json || (echo 'manifest.json missing' && exit 1)
+          if [ -f styles.css ]; then echo 'styles.css present (optional)'; else echo 'styles.css missing (ok if unused)'; fi
+
+      - name: Derive version
+        id: ver
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            # Manual dispatch - use input tag
+            TAG="${{ github.event.inputs.tag }}"
+            CLEAN_TAG="${TAG#v}"
+            echo "✅ Manual release - Version: $TAG"
+          elif [ -n "${{ github.ref_name }}" ] && [[ "${{ github.ref_name }}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # Git tag push - use tag from ref
+            TAG="${{ github.ref_name }}"
+            CLEAN_TAG="${TAG#v}"
+            echo "✅ Tag release - Version: $TAG"
+          else
+            # Fallback - use manifest.json version
+            TAG="v$(jq -r '.version' manifest.json)"
+            CLEAN_TAG="${TAG#v}"
+            echo "⚠️  Fallback - Using manifest version: $TAG"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "clean_tag=${CLEAN_TAG}" >> $GITHUB_OUTPUT
+          echo "📌 Final version: $CLEAN_TAG"
+
+      - name: Read manifest metadata
+        id: manifest
+        run: |
+          PLUGIN_ID=$(jq -r '.id' manifest.json)
+          PLUGIN_NAME=$(jq -r '.name' manifest.json)
+          PLUGIN_VERSION=$(jq -r '.version' manifest.json)
+          echo "plugin_id=${PLUGIN_ID}" >> $GITHUB_OUTPUT
+          echo "plugin_name=${PLUGIN_NAME}" >> $GITHUB_OUTPUT
+          echo "plugin_version=${PLUGIN_VERSION}" >> $GITHUB_OUTPUT
+          echo "📦 Plugin: ${PLUGIN_NAME} v${PLUGIN_VERSION} (${PLUGIN_ID})"
+
+      - name: Validate version match
+        run: |
+          MANIFEST_VERSION="${{ steps.manifest.outputs.plugin_version }}"
+          RELEASE_VERSION="${{ steps.ver.outputs.clean_tag }}"
+          
+          echo "🔍 Checking versions..."
+          echo "   manifest.json: $MANIFEST_VERSION"
+          echo "   Release tag:   $RELEASE_VERSION"
+          
+          if [ "$MANIFEST_VERSION" != "$RELEASE_VERSION" ]; then
+            echo ""
+            echo "⚠️  WARNING: Version mismatch detected!"
+            echo "   This is OK for manual dispatch workflow."
+            echo "   Release will use tag version: $RELEASE_VERSION"
+            echo ""
+            echo "💡 TIP: Update manifest.json to $RELEASE_VERSION for consistency"
+          else
+            echo "✅ Version match confirmed: $MANIFEST_VERSION"
+          fi
+
+      - name: Create ZIP bundle
+        id: zip
+        run: |
+          NAME="${{ steps.manifest.outputs.plugin_id }}-${{ steps.ver.outputs.clean_tag }}.zip"
+          # -j to junk paths so files are at root of the zip
+          if [ -f styles.css ]; then
+            zip -j "$NAME" manifest.json main.js styles.css
+            echo "✅ Created ZIP with styles.css"
+          else
+            zip -j "$NAME" manifest.json main.js
+            echo "✅ Created ZIP without styles.css"
+          fi
+          echo "zip_name=$NAME" >> $GITHUB_OUTPUT
+          echo "📦 ZIP bundle: $NAME"
+
+      - name: Create git tag if needed
+        if: github.event.inputs.tag != '' && github.event.inputs.auto_tag == 'true'
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          echo "🏷️  Checking if tag exists..."
+          
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "✅ Tag $TAG already exists"
+          else
+            echo "📌 Creating tag $TAG..."
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "Release $TAG via GitHub Actions"
+            git push origin "$TAG"
+            echo "✅ Tag $TAG created and pushed to repository"
+          fi
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          VERSION="${{ steps.ver.outputs.clean_tag }}"
+          echo "Generating release notes for version $VERSION..."
+          
+          # Extract changelog for this version
+          if [ -f CHANGELOG.md ]; then
+            NOTES=$(awk "/## v${VERSION}/,/## v[0-9]/" CHANGELOG.md | sed '/## v[0-9]/d' | head -n -1)
+            if [ -z "$NOTES" ]; then
+              NOTES="Release version ${VERSION}"
+            fi
+          else
+            NOTES="Release version ${VERSION}"
+          fi
+          
+          # Create release notes file
+          cat << EOF > release_notes.md
+          ## 🔐 SecureVault+ v${VERSION}
+          
+          $NOTES
+          
+          ---
+          
+          ## 📦 Installation
+          
+          1. Download \`${{ steps.zip.outputs.zip_name }}\` or individual files below
+          2. Extract to \`<vault>/.obsidian/plugins/securevault-plus/\`
+          3. Reload Obsidian (Ctrl+R / Cmd+R)
+          4. Enable plugin in Settings → Community plugins
+          
+          ## 📋 Required Files
+          
+          - \`manifest.json\` - Plugin metadata
+          - \`main.js\` - Plugin code
+          - \`styles.css\` - UI styling (optional but recommended)
+          
+          ## 🔗 Documentation
+          
+          - [User Guide](https://github.com/${{ github.repository }}/blob/master/README.md)
+          - [Changelog](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md)
+          
+          ---
+          
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/v1.3.0...v${VERSION}
+          EOF
+          
+          echo "✅ Release notes generated"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: 🔐 SecureVault+ v${{ steps.ver.outputs.clean_tag }}
+          body_path: release_notes.md
+          draft: ${{ github.event.inputs.draft == 'true' }}
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          files: |
+            manifest.json
+            main.js
+            styles.css
+            ${{ steps.zip.outputs.zip_name }}
+          fail_on_unmatched_files: false
+          make_latest: ${{ github.event.inputs.prerelease != 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Release summary
+        run: |
+          echo "## 🎉 Release Published!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Plugin:** ${{ steps.manifest.outputs.plugin_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.ver.outputs.clean_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** ${{ steps.ver.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Prerelease:** ${{ github.event.inputs.prerelease || false }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- manifest.json" >> $GITHUB_STEP_SUMMARY
+          echo "- main.js" >> $GITHUB_STEP_SUMMARY
+          echo "- styles.css" >> $GITHUB_STEP_SUMMARY
+          echo "- ${{ steps.zip.outputs.zip_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 [View Release](https://github.com/${{ github.repository }}/releases/tag/${{ steps.ver.outputs.tag }})" >> $GITHUB_STEP_SUMMARY

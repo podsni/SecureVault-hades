@@ -1,0 +1,9 @@
+---
+globs: *.ts,*.tsx
+---
+# Linting and Quality
+
+- Prefer ESLint with TypeScript rules. To analyze this project run: `eslint main.ts` or `eslint ./src/` if sources live there.
+- Fix linter errors before committing. Do not suppress rules unless justified.
+- Keep public APIs typed explicitly; avoid implicit any.
+- Keep changes minimal and scoped; avoid unrelated refactors in the same edit.

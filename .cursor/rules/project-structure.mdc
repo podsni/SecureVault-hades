@@ -1,0 +1,15 @@
+---
+alwaysApply: true
+---
+# Obsidian Plugin Project Structure
+
+- Entry point is [`main.ts`](mdc:main.ts). It compiles to `main.js` which Obsidian loads.
+- Build with npm + esbuild; scripts in [`package.json`](mdc:package.json), config in [`esbuild.config.mjs`](mdc:esbuild.config.mjs).
+- Required release artifacts at plugin root: `main.js`, [`manifest.json`](mdc:manifest.json), optional [`styles.css`](mdc:styles.css).
+- Source should be organized under `src/` when expanding beyond a single file. Keep `main.ts` minimal (plugin lifecycle and command registration) and move logic into modules (e.g., `src/settings.ts`, `src/commands/*`, `src/utils/*`).
+- Do not commit build artifacts or `node_modules/`.
+
+## Common commands
+- Install: `npm install`
+- Dev (watch): `npm run dev`
+- Production build: `npm run build`

@@ -1,0 +1,10 @@
+{
+	"id": "securevault-hades",
+	"name": "SecureVault-Hades",
+	"version": "1.4.0",
+	"minAppVersion": "0.15.0",
+	"description": "Advanced AES-256 encryption for Obsidian with selection-based encryption, .secvault files, and PBKDF2 100k iterations. Secure your notes with Hades-level protection.",
+	"author": "Hades Team",
+	"authorUrl": "https://github.com/dwirx/SecureVault-beta",
+	"isDesktopOnly": false
+}

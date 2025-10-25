@@ -1,0 +1,10 @@
+---
+alwaysApply: true
+---
+# Release and Versioning
+
+- Bump `version` in [`manifest.json`](mdc:manifest.json) using SemVer (x.y.z). Keep `minAppVersion` accurate.
+- Update [`versions.json`](mdc:versions.json) to map plugin version to minimum app version.
+- Create a GitHub release with the tag exactly equal to `manifest.json`'s `version` (no leading `v`).
+- Attach `manifest.json`, `main.js`, and `styles.css` (if present) as assets to the release.
+- For manual testing: copy `main.js`, `manifest.json`, and `styles.css` to `<Vault>/.obsidian/plugins/<plugin-id>/`.

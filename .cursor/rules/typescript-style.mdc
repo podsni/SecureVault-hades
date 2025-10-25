@@ -1,0 +1,12 @@
+---
+globs: *.ts,*.tsx
+---
+# TypeScript Style and Conventions
+
+- Enable strict typing; avoid `any` and unsafe casts. Prefer explicit function signatures for exported APIs.
+- Prefer descriptive names over abbreviations. Functions are verbs; variables are meaningful nouns.
+- Use early returns instead of deep nesting. Avoid unnecessary try/catch; never swallow errors.
+- Keep files focused with a single responsibility. Split files that grow beyond ~200-300 lines.
+- Keep `main.ts` minimal: lifecycle (`onload`, `onunload`) and command registration only. Put logic into separate modules.
+- Prefer `async/await` and handle errors gracefully. Avoid blocking operations in `onload`.
+- Match existing formatting; wrap long lines; avoid reformatting unrelated code.

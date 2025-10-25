@@ -1,0 +1,10 @@
+---
+alwaysApply: true
+---
+# Build and Artifacts
+
+- Use npm and esbuild per this repo. Build via `npm run dev` (watch) or `npm run build` (production). Config: [`esbuild.config.mjs`](mdc:esbuild.config.mjs).
+- Bundle all dependencies into `main.js`; no runtime external deps.
+- Output artifacts required by Obsidian at the plugin root: `main.js`, `manifest.json`, and optional `styles.css`.
+- Do not commit build outputs or `node_modules/`.
+- Keep startup code small; lazy-load heavy modules when possible.

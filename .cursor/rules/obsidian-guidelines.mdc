@@ -1,0 +1,13 @@
+---
+alwaysApply: true
+---
+# Obsidian Plugin Guidelines
+
+- Default to local/offline. Only make network calls for explicit, user-visible features with clear disclosure and opt-in.
+- No telemetry by default. If optional analytics or third-party calls exist, document in `README.md` and settings, and require explicit opt-in.
+- Never execute remote code or auto-update outside official releases. Bundle all deps into `main.js`.
+- Access only necessary data within the vault; never touch files outside the vault.
+- Register and clean up all listeners/intervals using `this.register*` helpers for safe unload.
+- Keep startup light; defer heavy work until needed. Debounce expensive file system responses.
+- Add commands with stable IDs via `this.addCommand(...)`. Provide sensible defaults and a settings tab if configuration exists.
+- Ensure mobile compatibility unless `isDesktopOnly` is `true`. Avoid Node/Electron-only APIs.
