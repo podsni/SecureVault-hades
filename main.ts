@@ -854,6 +854,26 @@ SecureVault/
 		}
 	}
 
+	async activateSecureVaultSidebar() {
+		let leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_SECUREVAULT)[0];
+
+		if (!leaf) {
+			let rightLeaf = this.app.workspace.getRightLeaf(false);
+			if (!rightLeaf) {
+				rightLeaf = this.app.workspace.getRightLeaf(true);
+			}
+
+			if (!rightLeaf) {
+				return;
+			}
+
+			await rightLeaf.setViewState({ type: VIEW_TYPE_SECUREVAULT, active: true });
+			leaf = rightLeaf;
+		}
+
+		this.app.workspace.revealLeaf(leaf);
+	}
+
 	refreshSidebarView() {
 		const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_SECUREVAULT);
 		for (const leaf of leaves) {

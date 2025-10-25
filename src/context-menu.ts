@@ -1,6 +1,6 @@
 /**
  * Context Menu Integration
- * Add right-click menu options for file/folder encryption
+ * Adds right-click menu options for SecureVault file & folder actions
  */
 
 import { Menu, TFile, TFolder, TAbstractFile, Notice } from 'obsidian';
@@ -20,50 +20,43 @@ export class ContextMenuManager {
 		this.passwordManager = new MasterPasswordManager(plugin.app, plugin.settings);
 	}
 
-	/**
-	 * Register context menu events
-	 */
 	register() {
-		// File menu event
 		this.plugin.registerEvent(
 			this.plugin.app.workspace.on('file-menu', (menu, file) => {
-				this.addFileMenuItems(menu, file);
+				if (!file) return;
+
+				if (file instanceof TFile) {
+					this.addFileMenu(menu, file);
+				} else if (file instanceof TFolder) {
+					this.addFolderMenu(menu, file);
+				}
 			})
 		);
 	}
 
-	/**
-	 * Add menu items to file context menu
-	 */
-	private addFileMenuItems(menu: Menu, file: TAbstractFile) {
-		// Only for files in vault (not system files)
-		if (!file) return;
-
-		// Check if it's a file or folder
-		const isFile = file instanceof TFile;
-		const isFolder = file instanceof TFolder;
-
-		if (isFile) {
-			this.addFileEncryptionMenuItems(menu, file);
-		} else if (isFolder) {
-			this.addFolderEncryptionMenuItems(menu, file);
-		}
-	}
-
-	/**
-	 * Add encryption menu items for individual files
-	 */
-	private addFileEncryptionMenuItems(menu: Menu, file: TFile) {
-		const isEncrypted = this.fileEncryption.isFileEncrypted(file.path);
+	private addFileMenu(menu: Menu, file: TFile) {
+		const isEncrypted =
+			file.extension === 'secvault' || this.fileEncryption.isFileEncrypted(file.path);
 		const isQuickUnlocked = this.fileEncryption.isFileQuickUnlocked(file.path);
 
 		menu.addSeparator();
+		menu.addItem((item) => {
+			item.setTitle('SecureVault').setIcon('shield').setDisabled(true);
+		});
 
-		if (isEncrypted) {
-			// Encrypted file options
+		if (!isEncrypted) {
 			menu.addItem((item) => {
 				item
-					.setTitle('🔓 Decrypt File')
+					.setTitle('🛡️ Encrypt file')
+					.setIcon('lock')
+					.onClick(async () => {
+						await this.handleFileEncryption(file);
+					});
+			});
+		} else {
+			menu.addItem((item) => {
+				item
+					.setTitle('🔓 Decrypt file')
 					.setIcon('unlock')
 					.onClick(async () => {
 						await this.handleFileDecryption(file);
@@ -72,56 +65,71 @@ export class ContextMenuManager {
 
 			menu.addItem((item) => {
 				item
-					.setTitle('⚡ Quick Unlock')
-					.setIcon('zap')
+					.setTitle('👁️ Preview (read-only)')
+					.setIcon('eye')
 					.onClick(async () => {
-						await this.handleQuickUnlock(file);
+						await this.plugin.previewService.previewFile(file);
 					});
 			});
 
 			if (isQuickUnlocked) {
 				menu.addItem((item) => {
 					item
-						.setTitle('🔒 Lock File')
+						.setTitle('🔒 Lock file')
 						.setIcon('lock')
 						.onClick(() => {
 							this.fileEncryption.lockQuickUnlockedFile(file.path);
+							this.plugin.refreshUi();
+						});
+				});
+			} else {
+				menu.addItem((item) => {
+					item
+						.setTitle('⚡ Quick unlock')
+						.setIcon('zap')
+						.onClick(async () => {
+							await this.handleQuickUnlock(file);
 						});
 				});
 			}
-		} else {
-			// Unencrypted file options
+
 			menu.addItem((item) => {
+				const stateLabel = isQuickUnlocked ? '⚡ Quick-unlocked' : '🔒 Encrypted';
 				item
-					.setTitle('🔒 Encrypt File')
-					.setIcon('lock')
-					.onClick(async () => {
-						await this.handleFileEncryption(file);
-					});
+					.setTitle(`Status: ${stateLabel}`)
+					.setIcon('info')
+					.setDisabled(true);
 			});
 		}
 
-		// Show file encryption status
+		if (!isEncrypted) {
+			menu.addItem((item) => {
+				item
+					.setTitle('Status: 🔓 Not encrypted')
+					.setIcon('info')
+					.setDisabled(true);
+			});
+		}
+
 		menu.addItem((item) => {
-			const status = isEncrypted 
-				? (isQuickUnlocked ? '⚡ Quick Unlocked' : '🔒 Encrypted')
-				: '🔓 Not Encrypted';
 			item
-				.setTitle(`Status: ${status}`)
-				.setIcon('info')
-				.setDisabled(true);
+				.setTitle('📊 Open SecureVault dashboard')
+				.setIcon('layout-grid')
+				.onClick(async () => {
+					await this.plugin.activateSecureVaultSidebar();
+				});
 		});
 	}
 
-	/**
-	 * Add encryption menu items for folders
-	 */
-	private addFolderEncryptionMenuItems(menu: Menu, folder: TFolder) {
-		menu.addSeparator();
-
+	private addFolderMenu(menu: Menu, folder: TFolder) {
 		const encryptedFolder = this.plugin.settings.encryptedFolders.find(
-			ef => ef.path === folder.path
+			(entry) => entry.path === folder.path
 		);
+
+		menu.addSeparator();
+		menu.addItem((item) => {
+			item.setTitle('SecureVault').setIcon('shield').setDisabled(true);
+		});
 
 		if (!encryptedFolder) {
 			menu.addItem((item) => {
@@ -139,104 +147,114 @@ export class ContextMenuManager {
 					.setIcon('info')
 					.setDisabled(true);
 			});
-			return;
-		}
-
-		if (encryptedFolder.isLocked) {
-			menu.addItem((item) => {
-				item
-					.setTitle('🔓 Unlock folder')
-					.setIcon('unlock')
-					.onClick(async () => {
-						await this.plugin.unlockSpecificFolder(encryptedFolder);
-					});
-			});
 		} else {
+			if (encryptedFolder.isLocked) {
+				menu.addItem((item) => {
+					item
+						.setTitle('🔓 Unlock folder')
+						.setIcon('unlock')
+						.onClick(async () => {
+							await this.plugin.unlockSpecificFolder(encryptedFolder);
+						});
+				});
+			} else {
+				menu.addItem((item) => {
+					item
+						.setTitle('🔒 Lock folder')
+						.setIcon('lock')
+						.onClick(async () => {
+							await this.plugin.lockSpecificFolder(encryptedFolder);
+						});
+				});
+			}
+
+			const status = encryptedFolder.isLocked ? '🔒 Locked' : '🔓 Unlocked';
+			const filesCount = encryptedFolder.encryptedFiles?.length ?? 0;
+
 			menu.addItem((item) => {
 				item
-					.setTitle('🔒 Lock folder')
-					.setIcon('lock')
-					.onClick(async () => {
-						await this.plugin.lockSpecificFolder(encryptedFolder);
-					});
+					.setTitle(`Status: ${status}`)
+					.setIcon('info')
+					.setDisabled(true);
+			});
+			menu.addItem((item) => {
+				item
+					.setTitle(`📄 Files: ${filesCount}`)
+					.setIcon('file-text')
+					.setDisabled(true);
 			});
 		}
 
 		menu.addItem((item) => {
-			const status = encryptedFolder.isLocked ? '🔒 Locked' : '🔓 Unlocked';
 			item
-				.setTitle(`Status: ${status}`)
-				.setIcon('info')
-				.setDisabled(true);
+				.setTitle('📊 Open SecureVault dashboard')
+				.setIcon('layout-grid')
+				.onClick(async () => {
+					await this.plugin.activateSecureVaultSidebar();
+				});
 		});
 	}
 
-	/**
-	 * Handle file encryption
-	 */
 	private async handleFileEncryption(file: TFile) {
-		// Check if master password is set
 		if (!this.passwordManager.isPasswordSet()) {
-			new Notice('❌ Please set up master password first');
+			new Notice('❌ Please set a master password first in SecureVault settings.');
 			return;
 		}
 
-		// Prompt for password
 		new PasswordModal(
 			this.plugin.app,
 			this.plugin.settings,
 			async (password) => {
-				// Get master key (password + key file)
-				const masterKey = await this.passwordManager.getMasterKey(password);
 				const keyFileContent = await this.passwordManager.getKeyFileContent();
+				const success = await this.fileEncryption.encryptFile(
+					file,
+					password,
+					keyFileContent ?? undefined
+				);
 
-				// Encrypt the file
-			const success = await this.fileEncryption.encryptFile(file, password, keyFileContent || '');
-			if (success) {
-				new Notice(`✅ File encrypted: ${file.name}`);
-				this.plugin.refreshUi();
+				if (success) {
+					new Notice(`✅ File encrypted: ${file.name}`);
+					this.plugin.refreshUi();
+				}
 			}
-		}
-	).open();
-}
+		).open();
+	}
 
-	/**
-	 * Handle file decryption
-	 */
 	private async handleFileDecryption(file: TFile) {
 		new PasswordModal(
 			this.plugin.app,
 			this.plugin.settings,
 			async (password) => {
-				// Get key file content
 				const keyFileContent = await this.passwordManager.getKeyFileContent();
+				const success = await this.fileEncryption.decryptFile(
+					file,
+					password,
+					keyFileContent ?? undefined
+				);
 
-				// Decrypt the file
-			const success = await this.fileEncryption.decryptFile(file, password, keyFileContent || '');
-			if (success) {
-				new Notice(`✅ File decrypted: ${file.name}`);
-				this.plugin.refreshUi();
+				if (success) {
+					new Notice(`✅ File decrypted: ${file.name}`);
+					this.plugin.refreshUi();
+				}
 			}
-		}
-	).open();
-}
+		).open();
+	}
 
-	/**
-	 * Handle quick unlock
-	 */
 	private async handleQuickUnlock(file: TFile) {
 		new PasswordModal(
 			this.plugin.app,
 			this.plugin.settings,
 			async (password) => {
-				// Get key file content
 				const keyFileContent = await this.passwordManager.getKeyFileContent();
+				const content = await this.fileEncryption.quickUnlockFile(
+					file,
+					password,
+					keyFileContent ?? undefined
+				);
 
-				// Quick unlock the file
-				const content = await this.fileEncryption.quickUnlockFile(file, password, keyFileContent || '');
 				if (content) {
 					new Notice(`✅ File quick-unlocked: ${file.name}`);
-					// Optionally: open file in view mode
+					this.plugin.refreshUi();
 				}
 			}
 		).open();
