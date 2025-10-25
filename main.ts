@@ -33,6 +33,7 @@ export default class SecureVaultPlugin extends Plugin {
 	private isProcessing: boolean = false;
 	private statusBarUpdateTimer: NodeJS.Timeout | null = null;
 	private statusBarEl: HTMLElement | null = null;
+	folderStatusCache = new Map<string, { isLocked: boolean; algorithm: string }>();
 
 	async onload() {
 		await this.loadSettings();
@@ -407,6 +408,11 @@ export default class SecureVaultPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
+	invalidateFolderStatusCache() {
+		this.folderStatusCache.clear();
+		console.log('Folder status cache invalidated.');
+	}
+
 	// Public methods untuk dipanggil dari modal
 	createEncryptedFolderCommand() {
 		new CreateFolderModal(this.app, this.settings, async (folderPath: string, password: string) => {
@@ -418,6 +424,7 @@ export default class SecureVaultPlugin extends Plugin {
 				await this.saveSettings();
 				this.accessLogger.log('create', folderPath, true, `Encrypted ${encFolder.encryptedFiles.length} files`);
 				new Notice(`✅ SUCCESS! Encrypted ${encFolder.encryptedFiles.length} file(s) in "${folderPath}" (including subfolders)`);
+				this.invalidateFolderStatusCache();
 				this.refreshUi();
 			} else {
 				this.accessLogger.log('create', folderPath, false, 'Encryption failed');
@@ -460,6 +467,7 @@ export default class SecureVaultPlugin extends Plugin {
 			this.settings.encryptedFolders.push(encFolder);
 			await this.saveSettings();
 			new Notice(`✅ SUCCESS! Encrypted ${encFolder.encryptedFiles.length} file(s) in "${folder.path}" (subfolders included)`, 5000);
+			this.invalidateFolderStatusCache();
 			this.refreshUi();
 		}).open();
 	}
@@ -481,6 +489,7 @@ export default class SecureVaultPlugin extends Plugin {
 		await this.saveSettings();
 		
 		new Notice(`✅ SUCCESS! Encrypted ${encFolder.encryptedFiles.length} file(s) in "${folder.path}" (subfolders included)`, 5000);
+		this.invalidateFolderStatusCache();
 		this.refreshUi();
 		}).open();
 	}
@@ -518,6 +527,7 @@ export default class SecureVaultPlugin extends Plugin {
 					await this.saveSettings();
 					this.accessLogger.log('unlock', folder.path, true, `Auto-unlocked ${folder.encryptedFiles.length} files`);
 					new Notice(`✅ Folder "${folder.path}" unlocked automatically!`, 3000);
+					this.folderStatusCache.set(folder.path, { isLocked: false, algorithm: folder.algorithm || 'AES-256-GCM' });
 					this.refreshUi();
 				} else {
 					// Password wrong - forget it
@@ -564,6 +574,7 @@ export default class SecureVaultPlugin extends Plugin {
 				await this.saveSettings();
 				this.accessLogger.log('unlock', folder.path, true, `Unlocked ${folder.encryptedFiles.length} files`);
 				new Notice(`✅ Folder "${folder.path}" unlocked successfully!`, 3000);
+				this.folderStatusCache.set(folder.path, { isLocked: false, algorithm: folder.algorithm || 'AES-256-GCM' });
 				this.refreshUi();
 				} else {
 					this.accessLogger.log('unlock', folder.path, false, 'Wrong password');
@@ -609,6 +620,7 @@ export default class SecureVaultPlugin extends Plugin {
 			await this.saveSettings();
 			this.accessLogger.log('lock', folder.path, true, `Locked ${folder.encryptedFiles.length} files`);
 			new Notice(`🔒 Folder "${folder.path}" locked successfully!`, 3000);
+			this.folderStatusCache.set(folder.path, { isLocked: true, algorithm: folder.algorithm || 'AES-256-GCM' });
 			this.refreshUi();
 			} finally {
 				this.isProcessing = false;
@@ -648,6 +660,7 @@ export default class SecureVaultPlugin extends Plugin {
 		if (successCount > 0) {
 			this.settings.lastUnlockTime = Date.now();
 			new Notice(`✅ SUCCESS! Unlocked ${successCount} folder(s) (all subfolders decrypted)`, 5000);
+			this.invalidateFolderStatusCache();
 			this.refreshUi();
 		} else {
 			new Notice('❌ FAILED! Wrong password or no folders to unlock.');
@@ -684,6 +697,7 @@ export default class SecureVaultPlugin extends Plugin {
 
 		await this.saveSettings();
 		new Notice(`✅ SUCCESS! Locked ${successCount} folder(s) (all subfolders encrypted)`, 5000);
+		this.invalidateFolderStatusCache();
 		this.refreshUi();
 		} finally {
 			this.isProcessing = false;
@@ -937,7 +951,7 @@ SecureVault/
 }
 
 // Quick Menu Modal - Pengganti Sidebar
-class QuickMenuModal extends Modal {
+export class QuickMenuModal extends Modal {
 	plugin: SecureVaultPlugin;
 
 	constructor(app: any, plugin: SecureVaultPlugin) {
@@ -968,7 +982,11 @@ class QuickMenuModal extends Modal {
 		const folderStatuses = new Map<string, any>();
 		
 		for (const folder of this.plugin.settings.encryptedFolders) {
-			const status = await this.plugin.vaultManager.detectFolderLockStatus(folder.path);
+			let status = this.plugin.folderStatusCache.get(folder.path);
+			if (!status) {
+				status = await this.plugin.vaultManager.detectFolderLockStatus(folder.path);
+				this.plugin.folderStatusCache.set(folder.path, status);
+			}
 			folderStatuses.set(folder.path, status);
 			if (status.isLocked) {
 				realLockedCount++;
