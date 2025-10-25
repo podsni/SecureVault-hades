@@ -70,6 +70,7 @@ export interface EncryptedFileMetadata {
 	content: string;
 	originalExtension?: string;
 	originalPath?: string;
+	contentType?: 'text' | 'binary';
 }
 
 export const DEFAULT_SETTINGS: SecureVaultSettings = {

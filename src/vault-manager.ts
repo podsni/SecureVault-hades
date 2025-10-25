@@ -20,13 +20,117 @@ export class VaultManager {
 		if (filePath.endsWith('.secvault')) {
 			return filePath;
 		}
-		return filePath.replace(/\.[^/.]+$/, '.secvault');
+		const lastDot = filePath.lastIndexOf('.');
+		if (lastDot === -1 || lastDot < filePath.lastIndexOf('/')) {
+			return `${filePath}.secvault`;
+		}
+		return `${filePath.substring(0, lastDot)}.secvault`;
 	}
 
 	private async renameFile(file: TFile, newPath: string): Promise<TFile> {
 		await this.app.fileManager.renameFile(file, newPath);
 		const renamed = this.app.vault.getAbstractFileByPath(newPath);
 		return renamed instanceof TFile ? renamed : file;
+	}
+
+	private isAttachment(file: TFile): boolean {
+		const extension = file.extension.toLowerCase();
+		return this.settings.attachmentTypes.includes(extension);
+	}
+
+	private async readBinaryAsBase64(file: TFile): Promise<string> {
+		const buffer = await this.app.vault.readBinary(file);
+		const bytes = new Uint8Array(buffer);
+		let binary = '';
+		for (let i = 0; i < bytes.length; i++) {
+			binary += String.fromCharCode(bytes[i]);
+		}
+		return btoa(binary);
+	}
+
+	private async writeBinaryFromBase64(file: TFile, base64Data: string): Promise<void> {
+		const binaryString = atob(base64Data);
+		const bytes = new Uint8Array(binaryString.length);
+		for (let i = 0; i < binaryString.length; i++) {
+			bytes[i] = binaryString.charCodeAt(i);
+		}
+		await this.app.vault.modifyBinary(file, bytes.buffer);
+	}
+
+	private async encryptFileInFolder(file: TFile, password: string): Promise<TFile | null> {
+		const extension = file.extension.toLowerCase();
+
+		if (extension === 'secvault') {
+			return null; // already encrypted
+		}
+
+		const isAttachment = this.isAttachment(file);
+
+		if (isAttachment && !this.settings.encryptAttachments) {
+			return null;
+		}
+
+		let content: string;
+		let contentType: 'text' | 'binary';
+
+		if (isAttachment) {
+			content = await this.readBinaryAsBase64(file);
+			contentType = 'binary';
+		} else {
+			content = await this.app.vault.read(file);
+			contentType = 'text';
+
+			if (this.isFileEncrypted(content)) {
+				return null;
+			}
+		}
+
+		const encrypted = CryptoService.encrypt(
+			content,
+			password,
+			this.settings.encryptionAlgorithm
+		);
+
+		const metadata: EncryptedFileMetadata = {
+			...encrypted,
+			originalExtension: file.extension,
+			originalPath: file.path,
+			contentType
+		};
+
+		const encodedContent = CryptoService.encodeFileContent(metadata);
+		await this.app.vault.modify(file, encodedContent);
+
+		if (this.shouldUseSecvaultExtension()) {
+			const newPath = this.getSecvaultPath(file.path);
+			file = await this.renameFile(file, newPath);
+		}
+
+		return file;
+	}
+
+	private async collectEncryptedFilePaths(folder: TFolder): Promise<string[]> {
+		const result: string[] = [];
+		const files = this.getAllFilesInFolder(folder, true);
+
+		for (const file of files) {
+			const extension = file.extension.toLowerCase();
+			if (extension === 'secvault') {
+				result.push(file.path);
+				continue;
+			}
+
+			try {
+				const content = await this.app.vault.read(file);
+				if (this.isFileEncrypted(content)) {
+					result.push(file.path);
+				}
+			} catch {
+				// Ignore binary files that cannot be read as text
+			}
+		}
+
+		return result;
 	}
 
 	// Detect actual lock status by checking files
@@ -45,31 +149,23 @@ export class VaultManager {
 		for (const file of files) {
 			const extension = file.extension.toLowerCase();
 
-			if (extension === 'secvault') {
-				encryptedCount++;
-				
-				try {
-					const content = await this.app.vault.read(file);
+			try {
+				const content = await this.app.vault.read(file);
+
+				if (extension === 'secvault' || this.isFileEncrypted(content)) {
+					encryptedCount++;
+
 					const metadata = CryptoService.decodeFileContent(content);
 					if (metadata?.algorithm) {
-						algorithms.add(metadata.algorithm);
-					}
-				} catch (error) {
-					console.error('Failed to inspect .secvault file:', file.path, error);
-				}
-			} else if (extension === 'md') {
-				const content = await this.app.vault.read(file);
-				
-				if (this.isFileEncrypted(content)) {
-					encryptedCount++;
-					// Detect algorithm from file
-					const metadata = CryptoService.decodeFileContent(content);
-					if (metadata) {
 						algorithms.add(metadata.algorithm);
 					}
 				} else {
 					decryptedCount++;
 				}
+			} catch (error) {
+				// Binary files may fail to read as text when unlocked - treat as decrypted
+				decryptedCount++;
+				console.debug('Skipping non-text file while detecting lock status:', file.path, error);
 			}
 		}
 
@@ -91,43 +187,18 @@ export class VaultManager {
 
 	async encryptFolder(folder: TFolder, password: string, recursive: boolean = true): Promise<EncryptedFolder> {
 		const files = this.getAllFilesInFolder(folder, recursive);
-		const settings = this.settings;
 
-		for (let file of files) {
-			if (file.extension.toLowerCase() !== 'md') {
-				continue;
-			}
-
-			const content = await this.app.vault.read(file);
-
-			// Skip if already encrypted
-			if (this.isFileEncrypted(content)) {
-				continue;
-			}
-
-			const encrypted = CryptoService.encrypt(
-				content,
-				password,
-				this.settings.encryptionAlgorithm
-			);
-			const metadata: EncryptedFileMetadata = {
-				...encrypted,
-				originalExtension: file.extension,
-				originalPath: file.path
-			};
-
-			const encodedContent = CryptoService.encodeFileContent(metadata);
-			await this.app.vault.modify(file, encodedContent);
-
-			if (settings.useSecvaultExtension) {
-				const newPath = this.getSecvaultPath(file.path);
-				file = await this.renameFile(file, newPath);
+		for (const file of files) {
+			try {
+				await this.encryptFileInFolder(file, password);
+			} catch (error) {
+				console.error('Failed to encrypt file inside folder:', file.path, error);
 			}
 		}
 
 		const salt = CryptoService.generateSalt();
 		const iv = CryptoService.generateIV();
-		const refreshedFiles = this.getAllFilesInFolder(folder, true);
+		const encryptedFiles = await this.collectEncryptedFilePaths(folder);
 
 		return {
 			path: folder.path,
@@ -136,9 +207,7 @@ export class VaultManager {
 			isLocked: true,
 			createdAt: Date.now(),
 			lastModified: Date.now(),
-			encryptedFiles: refreshedFiles
-				.filter(f => ['md', 'secvault'].includes(f.extension.toLowerCase()))
-				.map(f => f.path)
+			encryptedFiles
 		};
 	}
 
@@ -158,47 +227,51 @@ export class VaultManager {
 			let skippedCount = 0;
 
 			for (let file of allFiles) {
-				const extension = file.extension.toLowerCase();
-				if (extension === 'md' || extension === 'secvault') {
-					const content = await this.app.vault.read(file);
+				let content: string | null = null;
 
-					// Check if file is encrypted
-					if (!this.isFileEncrypted(content)) {
-						if (extension === 'md') {
-							skippedCount++;
-						}
-						continue;
-					}
+				try {
+					content = await this.app.vault.read(file);
+				} catch (error) {
+					// Binary files in unlocked state - skip counting to avoid false errors
+					console.debug('Skipping non-text file during decrypt scan:', file.path, error);
+					continue;
+				}
 
-					const metadata = CryptoService.decodeFileContent(content);
-					
-					if (!metadata) {
-						new Notice(`⚠️ File ${file.name} corrupted, skipping...`);
-						continue;
-					}
+				if (!content || !this.isFileEncrypted(content)) {
+					skippedCount++;
+					continue;
+				}
 
-					const decrypted = CryptoService.decrypt(metadata, password);
-					
-					if (!decrypted) {
-						throw new Error('Decryption failed - wrong password');
-					}
+				const metadata = CryptoService.decodeFileContent(content);
+				
+				if (!metadata) {
+					new Notice(`⚠️ File ${file.name} corrupted, skipping...`);
+					continue;
+				}
 
+				const decrypted = CryptoService.decrypt(metadata, password);
+				
+				if (!decrypted) {
+					throw new Error('Decryption failed - wrong password');
+				}
+
+				if (metadata.contentType === 'binary') {
+					await this.writeBinaryFromBase64(file, decrypted);
+				} else {
 					await this.app.vault.modify(file, decrypted);
-					decryptedCount++;
+				}
+				decryptedCount++;
 
-					if (extension === 'secvault' && this.shouldUseSecvaultExtension()) {
-						const originalExt = metadata.originalExtension || 'md';
-						const newPath = file.path.replace(/\.secvault$/i, `.${originalExt}`);
-						file = await this.renameFile(file, newPath);
-					}
+				if (this.shouldUseSecvaultExtension() && file.extension.toLowerCase() === 'secvault') {
+					const originalExtRaw = metadata.originalExtension || (metadata.contentType === 'binary' ? 'bin' : 'md');
+					const sanitizedExt = originalExtRaw.startsWith('.') ? originalExtRaw.substring(1) : originalExtRaw;
+					const newPath = file.path.replace(/\.secvault$/i, `.${sanitizedExt}`);
+					file = await this.renameFile(file, newPath);
 				}
 			}
 
 			// Update encrypted files list with current state
-			const refreshedFiles = this.getAllFilesInFolder(folder, true);
-			encFolder.encryptedFiles = refreshedFiles
-				.filter(f => ['md', 'secvault'].includes(f.extension.toLowerCase()))
-				.map(f => f.path);
+			encFolder.encryptedFiles = await this.collectEncryptedFilePaths(folder);
 			encFolder.isLocked = false;
 			encFolder.lastModified = Date.now();
 			
@@ -226,45 +299,38 @@ export class VaultManager {
 
 			const settings = this.settings;
 
-			for (let file of allFiles) {
-				const extension = file.extension.toLowerCase();
-
-				if (extension === 'md') {
-					const content = await this.app.vault.read(file);
-					
-					// Skip if already encrypted
-					if (this.isFileEncrypted(content)) {
+			for (const file of allFiles) {
+				try {
+					if (file.extension.toLowerCase() === 'secvault') {
 						skippedCount++;
 						continue;
 					}
-					
-					const encrypted = CryptoService.encrypt(
-						content,
-						password,
-						this.settings.encryptionAlgorithm
-					);
-					const metadata: EncryptedFileMetadata = {
-						...encrypted,
-						originalExtension: extension,
-						originalPath: file.path
-					};
-					const encodedContent = CryptoService.encodeFileContent(metadata);
-					
-					await this.app.vault.modify(file, encodedContent);
-					encryptedCount++;
 
-					if (settings.useSecvaultExtension) {
-						const newPath = this.getSecvaultPath(file.path);
-						file = await this.renameFile(file, newPath);
+					const isAttachment = this.isAttachment(file);
+					if (isAttachment && !settings.encryptAttachments) {
+						skippedCount++;
+						continue;
 					}
+
+					if (!isAttachment) {
+						const content = await this.app.vault.read(file);
+						if (this.isFileEncrypted(content)) {
+							skippedCount++;
+							continue;
+						}
+					}
+
+					const encrypted = await this.encryptFileInFolder(file, password);
+					if (encrypted) {
+						encryptedCount++;
+					}
+				} catch (error) {
+					console.error('Failed to lock file:', file.path, error);
 				}
 			}
 
 			// Update encrypted files list
-			const refreshedFiles = this.getAllFilesInFolder(folder, true);
-			encFolder.encryptedFiles = refreshedFiles
-				.filter(f => ['md', 'secvault'].includes(f.extension.toLowerCase()))
-				.map(f => f.path);
+			encFolder.encryptedFiles = await this.collectEncryptedFilePaths(folder);
 			encFolder.isLocked = true;
 			encFolder.lastModified = Date.now();
 			

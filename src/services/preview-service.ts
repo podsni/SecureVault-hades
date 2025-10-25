@@ -30,6 +30,16 @@ export class PreviewService {
 			return;
 		}
 
+		try {
+			const parsed = JSON.parse(rawContent);
+			if (parsed?.type === 'binary') {
+				new Notice('ℹ️ Preview tidak tersedia untuk file biner terenkripsi. Gunakan decrypt untuk memulihkan.');
+				return;
+			}
+		} catch {
+			// Ignore JSON parse errors for legacy format
+		}
+
 		new PasswordModal(this.app, this.plugin.settings, async (password: string) => {
 			try {
 				// Get key file if enabled

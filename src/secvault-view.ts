@@ -65,7 +65,7 @@ export class SecVaultView extends TextFileView {
 		this.renderInfoCard(container, formatData);
 		this.renderActionsCard(container, formatData);
 		this.renderPreviewCard(container, formatData);
-		this.renderHelpBox(container, formatData.format);
+		this.renderHelpBox(container, formatData);
 
 		// Add CSS styles
 		this.addStyles(container);
@@ -191,12 +191,13 @@ export class SecVaultView extends TextFileView {
 
 	private renderActionsCard(
 		container: HTMLElement,
-		formatData: { format: 'single' | 'folder' | 'unknown' }
+		formatData: { format: 'single' | 'folder' | 'unknown'; jsonData?: any }
 	) {
 		const actionsCard = container.createDiv('secvault-actions-card');
 		actionsCard.createEl('h3', { text: '⚡ Available Actions', cls: 'secvault-card-title' });
 
 		const actionsGrid = actionsCard.createDiv('secvault-actions-grid');
+		const isBinary = formatData.format === 'single' && formatData.jsonData?.type === 'binary';
 
 		const decryptAction = actionsGrid.createDiv('secvault-action-item');
 		const decryptBtn = decryptAction.createEl('button', {
@@ -213,7 +214,7 @@ export class SecVaultView extends TextFileView {
 		decryptAction.createEl('p', {
 			text:
 				formatData.format === 'single'
-					? 'Permanently decrypt this file and convert back to original format (.md)'
+					? 'Permanently decrypt this file and convert back to original format'
 					: 'Gunakan perintah Unlock Folder untuk mengembalikan file ke kondisi semula.',
 			cls: 'secvault-action-desc'
 		});
@@ -223,7 +224,7 @@ export class SecVaultView extends TextFileView {
 			text: '👁️ Quick View',
 			cls: 'mod-warning secvault-action-btn'
 		});
-		if (formatData.format !== 'single') {
+		if (formatData.format !== 'single' || isBinary) {
 			quickViewBtn.setAttribute('disabled', 'true');
 			quickViewBtn.addClass('is-disabled');
 		}
@@ -233,7 +234,9 @@ export class SecVaultView extends TextFileView {
 		viewAction.createEl('p', {
 			text:
 				formatData.format === 'single'
-					? 'Temporarily view content without decrypting (read-only, requires password)'
+					? isBinary
+						? 'Pratinjau cepat tidak tersedia untuk file biner. Gunakan decrypt untuk memulihkan.'
+						: 'Temporarily view content without decrypting (read-only, requires password)'
 					: 'Pratinjau cepat tidak tersedia untuk file hasil enkripsi folder.',
 			cls: 'secvault-action-desc'
 		});
@@ -249,11 +252,16 @@ export class SecVaultView extends TextFileView {
 		const previewContainer = previewCard.createDiv('secvault-preview-container');
 		const preview = previewContainer.createEl('div', { cls: 'secvault-encrypted-text' });
 
+		const isBinary = formatData.format === 'single' && formatData.jsonData?.type === 'binary';
 		let previewText = this.data.substring(0, 300) + (this.data.length > 300 ? '...' : '');
 		let totalChars = this.data.length;
 
 		if (formatData.format === 'single' && formatData.jsonData?.content) {
-			previewText = formatData.jsonData.content.substring(0, 300) + (formatData.jsonData.content.length > 300 ? '...' : '');
+			if (isBinary) {
+				previewText = '📁 Binary data disembunyikan. Gunakan decrypt untuk memulihkan konten aslinya.';
+			} else {
+				previewText = formatData.jsonData.content.substring(0, 300) + (formatData.jsonData.content.length > 300 ? '...' : '');
+			}
 			totalChars = formatData.jsonData.content.length;
 		} else if (formatData.format === 'folder' && formatData.folderMetadata?.content) {
 			previewText = formatData.folderMetadata.content.substring(0, 300) + (formatData.folderMetadata.content.length > 300 ? '...' : '');
@@ -269,7 +277,9 @@ export class SecVaultView extends TextFileView {
 		});
 	}
 
-	private renderHelpBox(container: HTMLElement, format: 'single' | 'folder' | 'unknown') {
+	private renderHelpBox(container: HTMLElement, formatData: { format: 'single' | 'folder' | 'unknown'; jsonData?: any }) {
+		const { format, jsonData } = formatData;
+		const isBinary = format === 'single' && jsonData?.type === 'binary';
 		const helpBox = container.createDiv('secvault-help-box');
 		if (format === 'single') {
 			helpBox.innerHTML = `
@@ -293,8 +303,8 @@ export class SecVaultView extends TextFileView {
 						<ul>
 							<li>This file <strong>cannot be edited</strong> while encrypted</li>
 							<li>Use <strong>🔓 Decrypt & Restore</strong> to permanently decrypt</li>
-							<li>Use <strong>👁️ Quick View</strong> for temporary read-only access</li>
-							<li>The file will be renamed back to <strong>.md</strong> after decryption</li>
+							${isBinary ? '<li>Preview is disabled for binary content. Decrypt to recover the original file.</li>' : '<li>Use <strong>👁️ Quick View</strong> for temporary read-only access</li>'}
+							<li>Ekstensi file akan kembali ke format aslinya setelah dekripsi</li>
 						</ul>
 					</div>
 					

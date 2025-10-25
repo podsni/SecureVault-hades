@@ -110,6 +110,10 @@ export class CryptoService {
 			lines.push(`original-path: ${metadata.originalPath}`);
 		}
 
+		if (metadata.contentType) {
+			lines.push(`content-type: ${metadata.contentType}`);
+		}
+
 		lines.push('---END---');
 
 		return lines.join('\n');
@@ -151,6 +155,9 @@ export class CryptoService {
 					break;
 				case 'original-path':
 					result.originalPath = rawValue;
+					break;
+				case 'content-type':
+					result.contentType = rawValue as 'text' | 'binary';
 					break;
 				default:
 					break;

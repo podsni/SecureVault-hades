@@ -139,7 +139,7 @@ export class FileEncryptionManager {
 
 			// Rename to .secvault if enabled
 			let finalFile = file;
-			if (this.plugin.settings.useSecvaultExtension && !isAttachment) {
+			if (this.plugin.settings.useSecvaultExtension) {
 				const newPath = originalPath.replace(/\.[^/.]+$/, '.secvault');
 				await this.app.fileManager.renameFile(file, newPath);
 				
