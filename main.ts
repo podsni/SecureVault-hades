@@ -12,6 +12,7 @@ import { MasterPasswordManager } from './src/master-password-manager';
 import { SelectionEncryptionManager } from './src/selection-encryption';
 import { PasswordMemoryManager } from './src/password-memory-manager';
 import { SecVaultView, SECVAULT_VIEW_TYPE } from './src/secvault-view';
+import { SecureVaultView, VIEW_TYPE_SECUREVAULT } from './src/sidebar-view';
 import { PreviewService } from './src/services';
 
 export default class SecureVaultPlugin extends Plugin {
@@ -28,6 +29,7 @@ export default class SecureVaultPlugin extends Plugin {
 	private autoLockTimer: NodeJS.Timeout | null = null;
 	private isProcessing: boolean = false;
 	private statusBarUpdateTimer: NodeJS.Timeout | null = null;
+	private statusBarEl: HTMLElement | null = null;
 
 	async onload() {
 		await this.loadSettings();
@@ -75,11 +77,14 @@ export default class SecureVaultPlugin extends Plugin {
 
 		// Status bar
 		const statusBar = this.addStatusBarItem();
+		this.statusBarEl = statusBar;
 		this.updateStatusBar(statusBar);
 		
 		// Update status bar setiap 5 detik
 		this.registerInterval(window.setInterval(() => {
-			this.updateStatusBar(statusBar);
+			if (this.statusBarEl) {
+				this.updateStatusBar(this.statusBarEl);
+			}
 		}, 5000));
 		
 		// Status bar clickable
@@ -393,7 +398,7 @@ export default class SecureVaultPlugin extends Plugin {
 				await this.saveSettings();
 				this.accessLogger.log('create', folderPath, true, `Encrypted ${encFolder.encryptedFiles.length} files`);
 				new Notice(`✅ SUCCESS! Encrypted ${encFolder.encryptedFiles.length} file(s) in "${folderPath}" (including subfolders)`);
-				this.refreshStatusBar();
+				this.refreshUi();
 			} else {
 				this.accessLogger.log('create', folderPath, false, 'Encryption failed');
 			}
@@ -403,14 +408,14 @@ export default class SecureVaultPlugin extends Plugin {
 	unlockAllCommand() {
 		new PasswordModal(this.app, this.settings, async (password: string) => {
 			await this.unlockAllFolders(password);
-			this.refreshStatusBar();
+			this.refreshUi();
 		}).open();
 	}
 
 	lockAllCommand() {
 		new PasswordModal(this.app, this.settings, async (password: string) => {
 			await this.lockAllFolders(password);
-			this.refreshStatusBar();
+			this.refreshUi();
 		}).open();
 	}
 
@@ -430,14 +435,14 @@ export default class SecureVaultPlugin extends Plugin {
 					return;
 				}
 
-				new Notice(`🔄 ENCRYPTING current folder + all subfolders...`);
-				const encFolder = await this.vaultManager.encryptFolder(folder as TFolder, password);
-				this.settings.encryptedFolders.push(encFolder);
-				await this.saveSettings();
-				new Notice(`✅ SUCCESS! Encrypted ${encFolder.encryptedFiles.length} file(s) in "${folder.path}" (subfolders included)`, 5000);
-				this.refreshStatusBar();
-			}).open();
-		}
+			new Notice(`🔄 ENCRYPTING current folder + all subfolders...`);
+			const encFolder = await this.vaultManager.encryptFolder(folder as TFolder, password);
+			this.settings.encryptedFolders.push(encFolder);
+			await this.saveSettings();
+			new Notice(`✅ SUCCESS! Encrypted ${encFolder.encryptedFiles.length} file(s) in "${folder.path}" (subfolders included)`, 5000);
+			this.refreshUi();
+		}).open();
+	}
 	}
 
 	// Encrypt folder from context menu (right-click)
@@ -449,14 +454,14 @@ export default class SecureVaultPlugin extends Plugin {
 				return;
 			}
 
-			new Notice(`🔄 ENCRYPTING: "${folder.path}" + all subfolders...`);
-			
-			const encFolder = await this.vaultManager.encryptFolder(folder, password, true);
-			this.settings.encryptedFolders.push(encFolder);
-			await this.saveSettings();
-			
-			new Notice(`✅ SUCCESS! Encrypted ${encFolder.encryptedFiles.length} file(s) in "${folder.path}" (subfolders included)`, 5000);
-			this.refreshStatusBar();
+		new Notice(`🔄 ENCRYPTING: "${folder.path}" + all subfolders...`);
+		
+		const encFolder = await this.vaultManager.encryptFolder(folder, password, true);
+		this.settings.encryptedFolders.push(encFolder);
+		await this.saveSettings();
+		
+		new Notice(`✅ SUCCESS! Encrypted ${encFolder.encryptedFiles.length} file(s) in "${folder.path}" (subfolders included)`, 5000);
+		this.refreshUi();
 		}).open();
 	}
 
@@ -482,7 +487,7 @@ export default class SecureVaultPlugin extends Plugin {
 					new Notice('ℹ️ This folder is already unlocked!');
 					folder.isLocked = false;
 					await this.saveSettings();
-					this.refreshStatusBar();
+					this.refreshUi();
 					return;
 				}
 				
@@ -493,7 +498,7 @@ export default class SecureVaultPlugin extends Plugin {
 					await this.saveSettings();
 					this.accessLogger.log('unlock', folder.path, true, `Auto-unlocked ${folder.encryptedFiles.length} files`);
 					new Notice(`✅ Folder "${folder.path}" unlocked automatically!`, 3000);
-					this.refreshStatusBar();
+					this.refreshUi();
 				} else {
 					// Password wrong - forget it
 					this.passwordMemory.forgetPassword('folder', folder.path);
@@ -518,13 +523,13 @@ export default class SecureVaultPlugin extends Plugin {
 				// Detect real status first
 				const status = await this.vaultManager.detectFolderLockStatus(folder.path);
 				
-				if (!status.isLocked) {
-					new Notice('ℹ️ This folder is already unlocked!');
-					folder.isLocked = false;
-					await this.saveSettings();
-					this.refreshStatusBar();
-					return;
-				}
+			if (!status.isLocked) {
+				new Notice('ℹ️ This folder is already unlocked!');
+				folder.isLocked = false;
+				await this.saveSettings();
+				this.refreshUi();
+				return;
+			}
 				
 				this.accessLogger.log('unlock', folder.path, false, 'Started unlocking');
 				new Notice(`🔓 UNLOCKING: "${folder.path}" + all subfolders...`);
@@ -536,10 +541,10 @@ export default class SecureVaultPlugin extends Plugin {
 						new Notice(`🔑 Password remembered for ${this.settings.rememberPasswordTimeout} minutes`, 3000);
 					}
 					
-					await this.saveSettings();
-					this.accessLogger.log('unlock', folder.path, true, `Unlocked ${folder.encryptedFiles.length} files`);
-					new Notice(`✅ Folder "${folder.path}" unlocked successfully!`, 3000);
-					this.refreshStatusBar();
+				await this.saveSettings();
+				this.accessLogger.log('unlock', folder.path, true, `Unlocked ${folder.encryptedFiles.length} files`);
+				new Notice(`✅ Folder "${folder.path}" unlocked successfully!`, 3000);
+				this.refreshUi();
 				} else {
 					this.accessLogger.log('unlock', folder.path, false, 'Wrong password');
 				}
@@ -562,13 +567,13 @@ export default class SecureVaultPlugin extends Plugin {
 				// Detect real status first
 				const status = await this.vaultManager.detectFolderLockStatus(folder.path);
 				
-				if (status.isLocked) {
-					new Notice('ℹ️ This folder is already locked!');
-					folder.isLocked = true;
-					await this.saveSettings();
-					this.refreshStatusBar();
-					return;
-				}
+			if (status.isLocked) {
+				new Notice('ℹ️ This folder is already locked!');
+				folder.isLocked = true;
+				await this.saveSettings();
+				this.refreshUi();
+				return;
+			}
 				
 				this.accessLogger.log('lock', folder.path, false, 'Started locking');
 				new Notice(`🔒 LOCKING: "${folder.path}" + all subfolders...`);
@@ -581,10 +586,10 @@ export default class SecureVaultPlugin extends Plugin {
 					new Notice('🗑️ Remembered password cleared', 2000);
 				}
 				
-				await this.saveSettings();
-				this.accessLogger.log('lock', folder.path, true, `Locked ${folder.encryptedFiles.length} files`);
-				new Notice(`🔒 Folder "${folder.path}" locked successfully!`, 3000);
-				this.refreshStatusBar();
+			await this.saveSettings();
+			this.accessLogger.log('lock', folder.path, true, `Locked ${folder.encryptedFiles.length} files`);
+			new Notice(`🔒 Folder "${folder.path}" locked successfully!`, 3000);
+			this.refreshUi();
 			} finally {
 				this.isProcessing = false;
 			}
@@ -618,15 +623,15 @@ export default class SecureVaultPlugin extends Plugin {
 				}
 			}
 
-			await this.saveSettings();
-			
-			if (successCount > 0) {
-				this.settings.lastUnlockTime = Date.now();
-				new Notice(`✅ SUCCESS! Unlocked ${successCount} folder(s) (all subfolders decrypted)`, 5000);
-				this.refreshStatusBar();
-			} else {
-				new Notice('❌ FAILED! Wrong password or no folders to unlock.');
-			}
+		await this.saveSettings();
+		
+		if (successCount > 0) {
+			this.settings.lastUnlockTime = Date.now();
+			new Notice(`✅ SUCCESS! Unlocked ${successCount} folder(s) (all subfolders decrypted)`, 5000);
+			this.refreshUi();
+		} else {
+			new Notice('❌ FAILED! Wrong password or no folders to unlock.');
+		}
 		} finally {
 			this.isProcessing = false;
 		}
@@ -657,9 +662,9 @@ export default class SecureVaultPlugin extends Plugin {
 				}
 			}
 
-			await this.saveSettings();
-			new Notice(`✅ SUCCESS! Locked ${successCount} folder(s) (all subfolders encrypted)`, 5000);
-			this.refreshStatusBar();
+		await this.saveSettings();
+		new Notice(`✅ SUCCESS! Locked ${successCount} folder(s) (all subfolders encrypted)`, 5000);
+		this.refreshUi();
 		} finally {
 			this.isProcessing = false;
 		}
@@ -849,6 +854,21 @@ SecureVault/
 		}
 	}
 
+	refreshSidebarView() {
+		const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_SECUREVAULT);
+		for (const leaf of leaves) {
+			const view = leaf.view;
+			if (view instanceof SecureVaultView) {
+				view.refresh();
+			}
+		}
+	}
+
+	refreshUi() {
+		this.refreshStatusBar();
+		this.refreshSidebarView();
+	}
+
 	refreshStatusBar() {
 		// PERBAIKAN: Debounce status bar updates (max 1 update per second)
 		if (this.statusBarUpdateTimer) {
@@ -856,14 +876,10 @@ SecureVault/
 		}
 		
 		this.statusBarUpdateTimer = setTimeout(() => {
-			// Update status bar
-			const statusBars = document.querySelectorAll('.status-bar-item');
-			statusBars.forEach(bar => {
-				if (bar.textContent?.includes('🔐')) {
-					this.updateStatusBar(bar as HTMLElement);
-				}
-			});
-		}, 1000); // Tunggu 1 detik sebelum update
+			if (this.statusBarEl) {
+				this.updateStatusBar(this.statusBarEl);
+			}
+		}, 300); // Debounce 300ms sebelum update
 	}
 }
 

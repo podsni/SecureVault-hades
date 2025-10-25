@@ -117,66 +117,53 @@ export class ContextMenuManager {
 	 * Add encryption menu items for folders
 	 */
 	private addFolderEncryptionMenuItems(menu: Menu, folder: TFolder) {
-		// Check if folder is in encrypted folders list
+		menu.addSeparator();
+
 		const encryptedFolder = this.plugin.settings.encryptedFolders.find(
 			ef => ef.path === folder.path
 		);
 
-		menu.addSeparator();
-
-		if (encryptedFolder) {
-			// Encrypted folder options
+		if (!encryptedFolder) {
 			menu.addItem((item) => {
 				item
-					.setTitle('🔓 Unlock Folder')
-					.setIcon('unlock')
-					.onClick(async () => {
-						// Use existing folder unlock mechanism
-						new PasswordModal(
-							this.plugin.app,
-							this.plugin.settings,
-							async (password) => {
-								// Handle unlock here
-								encryptedFolder.isLocked = false;
-								encryptedFolder.isUnlocked = true;
-								await this.plugin.saveSettings();
-								new Notice(`🔓 Folder unlocked: ${folder.name}`);
-							}
-						).open();
+					.setTitle('🛡️ Encrypt folder')
+					.setIcon('shield')
+					.onClick(() => {
+						this.plugin.encryptFolderFromContextMenu(folder);
 					});
 			});
 
-			if (!encryptedFolder.isLocked) {
-				menu.addItem((item) => {
-					item
-						.setTitle('🔒 Lock Folder')
-						.setIcon('lock')
-						.onClick(async () => {
-							encryptedFolder.isLocked = true;
-							encryptedFolder.isUnlocked = false;
-							await this.plugin.saveSettings();
-							new Notice(`🔒 Folder locked: ${folder.name}`);
-						});
-				});
-			}
-		} else {
-			// Not encrypted folder
 			menu.addItem((item) => {
 				item
-					.setTitle('🔒 Create Encrypted Vault Here')
+					.setTitle('Status: 📁 Not encrypted')
+					.setIcon('info')
+					.setDisabled(true);
+			});
+			return;
+		}
+
+		if (encryptedFolder.isLocked) {
+			menu.addItem((item) => {
+				item
+					.setTitle('🔓 Unlock folder')
+					.setIcon('unlock')
+					.onClick(async () => {
+						await this.plugin.unlockSpecificFolder(encryptedFolder);
+					});
+			});
+		} else {
+			menu.addItem((item) => {
+				item
+					.setTitle('🔒 Lock folder')
 					.setIcon('lock')
-					.onClick(() => {
-						// Open create folder modal with this path pre-filled
-						new Notice('Use "Create Encrypted Folder" command to set up encryption');
+					.onClick(async () => {
+						await this.plugin.lockSpecificFolder(encryptedFolder);
 					});
 			});
 		}
 
-		// Show folder status
 		menu.addItem((item) => {
-			const status = encryptedFolder
-				? (encryptedFolder.isLocked ? '🔒 Locked' : '🔓 Unlocked')
-				: '📁 Not Encrypted';
+			const status = encryptedFolder.isLocked ? '🔒 Locked' : '🔓 Unlocked';
 			item
 				.setTitle(`Status: ${status}`)
 				.setIcon('info')
@@ -204,13 +191,14 @@ export class ContextMenuManager {
 				const keyFileContent = await this.passwordManager.getKeyFileContent();
 
 				// Encrypt the file
-				const success = await this.fileEncryption.encryptFile(file, password, keyFileContent || '');
-				if (success) {
-					new Notice(`✅ File encrypted: ${file.name}`);
-				}
+			const success = await this.fileEncryption.encryptFile(file, password, keyFileContent || '');
+			if (success) {
+				new Notice(`✅ File encrypted: ${file.name}`);
+				this.plugin.refreshUi();
 			}
-		).open();
-	}
+		}
+	).open();
+}
 
 	/**
 	 * Handle file decryption
@@ -224,13 +212,14 @@ export class ContextMenuManager {
 				const keyFileContent = await this.passwordManager.getKeyFileContent();
 
 				// Decrypt the file
-				const success = await this.fileEncryption.decryptFile(file, password, keyFileContent || '');
-				if (success) {
-					new Notice(`✅ File decrypted: ${file.name}`);
-				}
+			const success = await this.fileEncryption.decryptFile(file, password, keyFileContent || '');
+			if (success) {
+				new Notice(`✅ File decrypted: ${file.name}`);
+				this.plugin.refreshUi();
 			}
-		).open();
-	}
+		}
+	).open();
+}
 
 	/**
 	 * Handle quick unlock
